@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>EGG QUEST</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  /* 美咲ゴシック(ドットフォント)。8px の倍数で使うとくっきり表示される */
+  @font-face { font-family: 'Misaki'; src: url('fonts/misaki_gothic.woff2') format('woff2'); font-display: block; }
+  /* Yodaka(オリジナルのドットフォント): 英字・数字・記号だけに使う。1ドット = 70/1000em なので、
+     size-adjust で 16px のとき 1ドット = 1px になるようにしてある(16px の倍数で使うとくっきり出る) */
+  @font-face { font-family: 'Yodaka'; src: url('fonts/yodaka.woff') format('woff'); font-display: block; size-adjust: 89.2857%;
+               unicode-range: U+0020-007E, U+00A0-00FF, U+2010-206F, U+20AC, U+2100-21FF, U+2200-22FF, U+25A0-25FF, U+2600-27BF, U+FF01-FF5E; }
+  body { margin:0; background:#14161c; color:#dde; font-family:'Yodaka', 'Misaki', sans-serif; display:flex; justify-content:center; padding:20px;
+         -webkit-font-smoothing: none; font-smooth: never; }
+  #wrap { display:flex; flex-direction:column; align-items:center; gap:12px; }   /* 下のエリアは中身の幅のまま(上の表示はその幅に合わせる) */
+  #main { display:flex; gap:20px; align-items:flex-start; }
+  #field { display:block; }
+  canvas { background:#0b0c10; border:2px solid #444a58; }
+  #side { width:200px; font-size:16px; line-height:1.25; }
+  .stat { margin:4px 0 8px; } .stat b { font-size:32px; font-weight:normal; }
+  .label { font-size:16px; margin-top:6px; }
+  #next { margin:4px 0 8px; }
+  /* ボスの情報(角丸の枠) */
+  /* カードは右の欄の幅の9割(文字はドットフォントがくっきり出る16pxのまま) */
+  #boss { width:180px; box-sizing:border-box; margin-top:10px; padding:7px 9px; border:2px solid #5a5f70; border-radius:9px; background:#1b1d25; }
+  #boss .en { font-size:16px; color:#fff; }
+  #boss .ja { font-size:16px; color:#aab; }
+  #boss canvas { display:block; margin:6px auto; background:#0b0c10; border:1px solid #333845; image-rendering:pixelated; }
+  #boss .row { font-size:16px; margin:2px 0; }
+  #boss .attr { display:inline-block; padding:0 3px; color:#111; border-radius:3px; }
+  #boss.none { visibility:hidden; }   /* 敵がいないときは、カードを出さない(場所はそのまま空けておく) */
+  /* スマホ用のボタン(指で操作する端末だけ出す) */
+  #touch { display:none; flex-direction:column; gap:8px; margin-top:4px; user-select:none; -webkit-user-select:none; }
+  #touch .row { display:flex; gap:8px; }
+  #touch button { flex:1; height:76px; font-family:'Yodaka', 'Misaki', sans-serif; font-size:32px; color:#dde; background:#262a36;
+                  border:2px solid #4a5062; border-radius:12px; touch-action:none; padding:0; }
+  #touch button.small { height:44px; font-size:16px; }
+  #touch button.on { background:#3c4458; }
+  #rotate { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:#14161c;
+            font-size:16px; text-align:center; line-height:2; z-index:10; }
+  @media (pointer: coarse) {
+    body { padding:4px; touch-action:none; overscroll-behavior:none; }
+    #touch { display:flex; }
+  }
+  /* スマホは縦画面専用: 横にしたときはお願いを出す */
+  @media (pointer: coarse) and (orientation: landscape) {
+    #rotate { display:flex; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="field" width="625" height="150"></canvas>
+  <div id="main">
+  <canvas id="board" width="300" height="600"></canvas>
+  <div id="side">
+    <div class="stat">ＳＴＡＧＥ　<b id="stage">1</b></div>
+    <div class="stat">ＳＣＯＲＥ<br><b id="score">0</b></div>
+    <div class="label">ＮＥＸＴ</div>
+    <canvas id="next" width="120" height="80"></canvas>
+    <div id="boss" class="none">
+      <div class="en" id="bossEn">-</div>
+      <div class="ja" id="bossJa"></div>
+      <canvas id="bossImg" width="144" height="86"></canvas>
+      <div class="row">特性:<span id="bossAttr"></span></div>
+      <div class="row">弱点:<span id="bossWeak"></span></div>
+      <div class="row">体力:<span id="bossHp"></span></div>
+      <div class="row">攻撃力:<span id="bossAtk"></span></div>
+    </div>
+  </div>
+  </div>
+  <div id="touch">
+    <div class="row">
+      <button data-key="z">⟲</button>
+      <button data-key="ArrowLeft">←</button>
+      <button data-key="ArrowDown">↓</button>
+      <button data-key="ArrowRight">→</button>
+      <button data-key="x">⟳</button>
+    </div>
+    <div class="row">
+      <button data-key=" ">ハードドロップ ⤓</button>
+    </div>
+    <div class="row">
+      <button class="small" data-key="p">ポーズ</button>
+      <button class="small" data-key="r">リスタート</button>
+      <button class="small" data-key="m">ＢＧＭ</button>
+    </div>
+  </div>
+</div>
+<div id="rotate">スマホを縦にしてください<br>(縦画面専用です)</div>
+<script src="music/bgm_score.js"></script>
+<script src="music/bgm_score_ice.js"></script>
+<script src="music/bgm_score_forest.js"></script>
+<script src="music/bgm_score_fire.js"></script>
+<script src="music/bgm_score_water.js"></script>
+<script src="music/bgm_score_earth.js"></script>
+<script src="music/bgm_score_thunder.js"></script>
+<script src="music/bgm_score_dark.js"></script>
+<script>
+  // 開発中は、古い game.js がブラウザに残らないよう、毎回読み直す
+  document.write('<script src="game.js?t=' + Date.now() + '"><\/script>');
+</script>
+</body>
+</html>
