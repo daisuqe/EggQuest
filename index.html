@@ -14,22 +14,29 @@
   body { margin:0; background:#14161c; color:#dde; font-family:'Yodaka', 'Misaki', sans-serif; display:flex; justify-content:center; padding:20px;
          -webkit-font-smoothing: none; font-smooth: never; }
   #wrap { display:flex; flex-direction:column; align-items:center; gap:12px; }   /* 下のエリアは中身の幅のまま(上の表示はその幅に合わせる) */
-  #main { display:flex; gap:20px; align-items:flex-start; }
+  #main { display:flex; flex-direction:row-reverse; gap:16px; align-items:flex-start; }   /* 右の欄(情報・アイテム)は左、盤面は右 */
   #field { display:block; }
   canvas { background:#0b0c10; border:2px solid #444a58; }
   #side { width:200px; font-size:16px; line-height:1.25; }
-  .stat { margin:4px 0 8px; } .stat b { font-size:32px; font-weight:normal; }
-  .label { font-size:16px; margin-top:6px; }
-  #next { margin:4px 0 8px; }
+  /* ステージ・スコア・NEXT の文字は2倍(32px、数字は64px) */
+  .stat { font-size:32px; margin:4px 0 10px; } .stat b { font-size:64px; font-weight:normal; line-height:1; }
+  .label { font-size:32px; margin-top:6px; }
+  #next { margin:6px 0 4px; }
   /* ボスの情報(角丸の枠) */
   /* カードは右の欄の幅の9割(文字はドットフォントがくっきり出る16pxのまま) */
-  #boss { width:180px; box-sizing:border-box; margin-top:10px; padding:7px 9px; border:2px solid #5a5f70; border-radius:9px; background:#1b1d25; }
+  #boss { width:200px; box-sizing:border-box; margin-top:10px; padding:7px 9px; border:2px solid #5a5f70; border-radius:9px; background:#1b1d25; }
   #boss .en { font-size:16px; color:#fff; }
   #boss .ja { font-size:16px; color:#aab; }
   #boss canvas { display:block; margin:6px auto; background:#0b0c10; border:1px solid #333845; image-rendering:pixelated; }
   #boss .row { font-size:16px; margin:2px 0; }
   #boss .attr { display:inline-block; padding:0 3px; color:#111; border-radius:3px; }
   #boss.none { visibility:hidden; }   /* 敵がいないときは、カードを出さない(場所はそのまま空けておく) */
+  /* アイテム(月の杖・くすりの瓶): ボスのカードの下。タップで使う */
+  #items { width:200px; display:flex; flex-direction:column; align-items:center; gap:12px; margin-top:14px; }
+  #items .slot { position:relative; }
+  #items canvas.item { display:block; background:none; border:none; cursor:pointer; touch-action:none; }
+  #items .key { position:absolute; right:12px; bottom:8px; pointer-events:none; font-size:16px; color:#8890a0; }
+  body.touchdev #items .key { display:none; }   /* スマホでは、キーの表示はいらない */
   /* スマホ用のボタン(指で操作する端末だけ出す) */
   #touch { display:none; flex-direction:column; gap:8px; margin-top:4px; user-select:none; -webkit-user-select:none; }
   #touch .row { display:flex; gap:8px; }
@@ -39,6 +46,37 @@
   #touch button.on { background:#3c4458; }
   body.flick #touch .play { display:none; }   /* フリック操作のときは、移動・回転のボタンを出さない */
   body.flick #touch { align-self:stretch; width:100%; }
+  #menu { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:rgba(8,10,16,0.7); z-index:5;
+          touch-action:none; user-select:none; -webkit-user-select:none; }
+  #menu.open { display:flex; }
+  #menu .panel { min-width:240px; padding:16px 20px 20px; border:2px solid #5a5f70; border-radius:12px; background:#1b1d25; }
+  #menu .title { font-size:16px; color:#ffe27a; text-align:center; margin-bottom:12px; }
+  #menu .list { display:flex; flex-direction:column; gap:10px; }
+  #menu button { height:48px; font-family:'Yodaka', 'Misaki', sans-serif; font-size:16px; color:#dde; background:#262a36;
+                 border:2px solid #4a5062; border-radius:10px; padding:0 16px; cursor:pointer; touch-action:none; }
+  #menu button.sel { border-color:#ffe27a; color:#fff; }
+  #field { cursor:pointer; }
+  #menu .help { margin-bottom:14px; font-size:16px; line-height:1.5; }
+  #menu .help .row { display:flex; gap:12px; }
+  #menu .help .k { color:#ffe27a; min-width:9em; }
+  #menu .help .note { color:#9aa3b8; margin-top:6px; }
+  #menu .help:empty { display:none; }
+  #menu .panel { max-width:calc(100vw - 32px); box-sizing:border-box; }
+  @media (max-width: 520px) {   /* せまい画面では、操作と動きを2行に */
+    #menu .help .row { flex-direction:column; gap:0; margin-bottom:4px; }
+    #menu .help .v { padding-left:1em; }
+  }
+  /* タイトル画面 */
+  #title { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+           background:radial-gradient(ellipse at 50% 35%, #2a2140 0%, #14161c 70%); z-index:4; user-select:none; -webkit-user-select:none; touch-action:none; }
+  #title.hide { display:none; }
+  #title canvas { display:block; background:none; border:none; }
+  #title .list { display:flex; flex-direction:column; gap:12px; width:260px; }
+  #title button { height:56px; font-family:'Yodaka', 'Misaki', sans-serif; font-size:32px; color:#dde; background:#262a36;
+                  border:2px solid #4a5062; border-radius:12px; cursor:pointer; touch-action:none; }
+  #title button.sel { border-color:#ffe27a; color:#fff; background:#30344a; }
+  #title .hint { font-size:16px; color:#8890a0; }
+  body.touchdev #title .hint { display:none; }
   #rotate { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:#14161c;
             font-size:16px; text-align:center; line-height:2; z-index:10; }
   @media (pointer: coarse) {
@@ -57,18 +95,23 @@
   <div id="main">
   <canvas id="board" width="300" height="600"></canvas>
   <div id="side">
-    <div class="stat">ＳＴＡＧＥ　<b id="stage">1</b></div>
-    <div class="stat">ＳＣＯＲＥ<br><b id="score">0</b></div>
-    <div class="label">ＮＥＸＴ</div>
-    <canvas id="next" width="120" height="80"></canvas>
+    <div class="stat">STAGE <b id="stage">1</b></div>
+    <div class="stat">SCORE<br><b id="score">0</b></div>
+    <div class="label">NEXT</div>
+    <canvas id="next" width="196" height="196"></canvas>
     <div id="boss" class="none">
       <div class="en" id="bossEn">-</div>
       <div class="ja" id="bossJa"></div>
-      <canvas id="bossImg" width="144" height="86"></canvas>
+      <canvas id="bossImg" width="178" height="176"></canvas>
       <div class="row">特性:<span id="bossAttr"></span></div>
       <div class="row">弱点:<span id="bossWeak"></span></div>
       <div class="row">体力:<span id="bossHp"></span></div>
       <div class="row">攻撃力:<span id="bossAtk"></span></div>
+    </div>
+    <!-- ルネリアのアイテム: 月の杖(満タンでタップ=月光波)と、くすりの瓶(タップ=体力回復) -->
+    <div id="items">
+      <div class="slot"><canvas id="moonItem" class="item" width="196" height="196"></canvas><div class="key">Ｖ</div></div>
+      <div class="slot"><canvas id="potionItem" class="item" width="196" height="196"></canvas><div class="key">Ｃ</div></div>
     </div>
   </div>
   </div>
@@ -83,13 +126,12 @@
     <div class="row play">
       <button data-act="hard">ハードドロップ ⤓</button>
     </div>
-    <div class="row">
-      <button class="small" data-cmd="pause">ポーズ</button>
-      <button class="small" data-cmd="restart">リスタート</button>
-      <button class="small" data-cmd="bgm">ＢＧＭ</button>
-    </div>
   </div>
 </div>
+<!-- 設定メニュー(上のダンジョンをタップ / Esc / パッドの START で開く) -->
+<div id="menu"><div class="panel"><div class="title">メニュー</div><div class="help"></div><div class="list"></div></div></div>
+<!-- タイトル画面(ゲームの画面とは別) -->
+<div id="title"><canvas id="titleCv" width="480" height="450"></canvas><div class="list"></div><div class="hint">↑↓で えらんで ＥＮＴＥＲ</div></div>
 <div id="rotate">スマホを縦にしてください<br>(縦画面専用です)</div>
 <script src="music/bgm_score.js"></script>
 <script src="music/bgm_score_ice.js"></script>
@@ -99,6 +141,7 @@
 <script src="music/bgm_score_earth.js"></script>
 <script src="music/bgm_score_thunder.js"></script>
 <script src="music/bgm_score_dark.js"></script>
+<script src="music/bgm_gameover.js"></script>
 <script>
   // 開発中は、古い game.js がブラウザに残らないよう、毎回読み直す
   document.write('<script src="game.js?t=' + Date.now() + '"><\/script>');

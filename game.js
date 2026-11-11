@@ -2,6 +2,10 @@
 const COLS = 10, ROWS = 20, CELL = 30;
 const cv = document.getElementById('board'), ctx = cv.getContext('2d');
 const nv = document.getElementById('next'), nctx = nv.getContext('2d');
+// 盤面は、中の座標(BW x BH)はそのまま、BOARD_K 倍の細かさで描く(右の欄より盤面を大きく見せる)
+const BOARD_K = 2, BW = COLS * CELL, BH = ROWS * CELL;
+cv.width = BW * BOARD_K; cv.height = BH * BOARD_K;
+const NEXT_CELL = 42;   // NEXT の枠の、1マスの大きさ
 const fieldCv = document.getElementById('field'), fctx = fieldCv.getContext('2d');
 
 // ミノ定義 (SRS 初期向き)。[x, y, 穴か]
@@ -77,7 +81,7 @@ function reset() {
   board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   queue = []; score = 0; lines = 0; level = 1;
   over = false; paused = false; stopHolds();
-  flash = []; monsters = []; enemies = []; enemyTimer = 0; fx = []; popups = []; hatchlings = []; overReason = null; stage = 1; resetStage();
+  flash = []; monsters = []; enemies = []; enemyTimer = 0; fx = []; popups = []; hatchlings = []; overReason = null; stage = 1; resetStage(); resetItems();
   clearing = null; parts = []; cv.style.transform = '';
   spawn();
   updateHud();
@@ -221,10 +225,10 @@ function drawHatch(g) {
     if (turn < 1) {                                     // 白く光る姿
       g.globalAlpha = 1 - turn;
       g.shadowColor = 'rgba(255,255,255,0.95)'; g.shadowBlur = 16 * (1 - turn);
-      g.drawImage(pixSrc(g, whiteSilhouette(img), k * sc)[0], -dw / 2, -dh / 2, dw, dh);
+      g.drawImage(pixSrc(g, whiteSilhouette(img), k * sc * BOARD_K)[0], -dw / 2, -dh / 2, dw, dh);
       g.shadowBlur = 0;
     }
-    if (turn > 0) { g.globalAlpha = turn; g.drawImage(pixSrc(g, img, k * sc)[0], -dw / 2, -dh / 2, dw, dh); }
+    if (turn > 0) { g.globalAlpha = turn; g.drawImage(pixSrc(g, img, k * sc * BOARD_K)[0], -dw / 2, -dh / 2, dw, dh); }
     g.restore();
   }
 }
@@ -256,6 +260,7 @@ function updateClear(dt) {
   if (!c.burst && p >= BURST) { // 行のブロックを粒にして中心から外へ飛ばす
     c.burst = true;
     hatchEggs(c.eggPos);
+    gainItems(n);   // くすりの瓶・三日月に溜まる
     // 紙ふぶき(めでたい!): 得点の文字のまわりから、色とりどりに舞い上がって落ちる
     const cols = ['#ffe27a', '#ff7a8a', '#7ad8ff', '#9aff8a', '#d89aff', '#ffffff', '#ffb04a'];
     const cy = clearTextY(c), cnt = 30 + 12 * Math.min(6, c.n);
@@ -356,7 +361,10 @@ const SFX = {
   hard:   [[587, 175, .16, .09]],
   touch:  [[165, 110, .13, .16]],
   land:   [[131, 73, .22, .20], [262, 147, .10, .04]],
-  merge:  [[660, 1320, .12, .08], [990, 1980, .16, .07, .09]],   // 同じモンスターに体力が加わったとき(ピローん)
+  merge:  [[660, 1320, .12, .08], [990, 1980, .16, .07, .09]],
+  heal:   [[523, 784, .14, .08], [659, 1047, .18, .07, .09], [784, 1319, .26, .06, .18]],   // くすりで回復
+  full:   [[1319, 1319, .07, .06], [1760, 1760, .22, .06, .08]],                         // 三日月が満タンになった
+  moon:   [[1568, 523, .55, .09], [2093, 784, .6, .06, .06], [196, 98, .45, .16]],        // 月光波   // 同じモンスターに体力が加わったとき(ピローん)
   clear: n => {
     const notes = [523, 659, 784, 1047, 1319, 1568, 2093], k = Math.min(notes.length, 2 + n), out = [];
     for (let i = 0; i < k; i++) out.push([notes[i], notes[i], i === k - 1 ? .34 : .1, .09, i * .085]);
@@ -572,10 +580,33 @@ function updateBgm() {            // 鳴らす/小さくする(状態が変わ�
     if (v > 0 && bgm.el.paused) bgm.el.play().catch(() => {});
   }
 }
-let bgmLastWanted = null;
+let bgmLastWanted = null, lastGameOver = false;
 function watchBgm() {             // 毎フレーム: ポーズ・ゲームオーバーの切り替わりで音量を変える
   const w = bgmWanted();
   if (w !== bgmLastWanted) { bgmLastWanted = w; updateBgm(); }
+  const go = isGameOver();
+  if (go !== lastGameOver) { lastGameOver = go; if (go) playGameOver(); else stopGameOver(); }
+}
+// ---- ゲームオーバーの曲(music/bgm_gameover.js の window.GAME_OVER_SCORE)。ステージの曲が消えてから1回だけ鳴らす ----
+const GAME_OVER_DELAY = 0.6;      // ゲームオーバーになってから鳴りはじめるまで(秒)
+const GAME_OVER_VOL_K = 1.5;      // ステージの曲より少し静かな曲なので、そろえるために大きく
+let jingle = null;                // { gain, list }
+function isGameOver() { return over && overReason !== 'ending' && overReason !== 'clear'; }   // 負け(エンディングは入らない)
+function playGameOver() {
+  stopGameOver();
+  const sc = window.GAME_OVER_SCORE, ctx = ensureCtx();
+  if (!sc || !ctx || ctx.state !== 'running' || bgmMuted) return;
+  const gain = ctx.createGain(); gain.gain.value = BGM_VOL * GAME_OVER_VOL_K; gain.connect(ctx.destination);
+  const out = bgmMaster(ctx, gain), t0 = ctx.currentTime + GAME_OVER_DELAY, list = [];
+  for (const n of bgmScoreNotes(sc)) bgmNote(ctx, out, n.name, t0 + n.t, n.d, n.n, n.v, list);
+  jingle = { gain, list };
+}
+function stopGameOver() {          // リスタート・タイトルへ・BGM オフで止める(すっと消す)
+  const j = jingle;
+  if (!j) return;
+  jingle = null;
+  j.gain.gain.setTargetAtTime(0, actx.currentTime, 0.05);
+  setTimeout(() => { for (const o of j.list) { try { o.stop(); } catch (e) {} } j.gain.disconnect(); }, 300);
 }
 
 // 移動を試みる。穴が重なったらその位置に移動して固定。
@@ -660,7 +691,10 @@ function softStep() {
 }
 
 function updateHud() {
-  document.getElementById('score').textContent = score;
+  const sc = document.getElementById('score');
+  sc.textContent = score;
+  const digits = String(score).length;   // けたが多いときは、欄に収まるように小さく(ドットがくっきり出る大きさで)
+  if (sc.style) sc.style.fontSize = digits <= 5 ? '' : digits === 6 ? '48px' : '32px';
   document.getElementById('stage').textContent = stage;
 }
 
@@ -1167,7 +1201,7 @@ function spawnEnemy(key) {
                  atkMul: (boss ? ENEMY_ATK_MUL * BOSS_MOVE / bossMove(key) : 1) * mul, itvMul: boss ? ENEMY_ITV_MUL : 1 });
 }
 function bossMove(key) { return BOSS_FAST[key] || BOSS_MOVE; }
-const ZAKO_SPEED_MUL = 0.6;        // ザコの移動の速さの倍率(ゆっくり)
+const ZAKO_SPEED_MUL = 0.9;        // ザコの移動の速さの倍率
 // ボスの移動の速さ(px/秒)。平均3、いちばん遅いのと速いのの差は1.8倍まで(足の速そうな雷・氷が速め、地が遅め)
 const BOSS_SPEED = { SS: 2.6, JJ: 2.69, II: 3.68, LL: 2.25, ZZ: 2.95, OO: 4.0, TT: 2.82 };
 function enemySpeed(e) {
@@ -1494,7 +1528,7 @@ function openDoor() {               // 扉が開いた: ステージクリア。
 }
 function nextStage() {             // 次のステージへ: 戦場(モンスター・敵・扉)だけ新しくする。ブロックの盤面・得点はそのまま続く
   stage++;
-  monsters = []; enemies = []; enemyTimer = ENEMY_RESPAWN; fx = []; popups = [];
+  monsters = []; enemies = []; enemyTimer = ENEMY_RESPAWN; fx = []; popups = []; moonWave = null;
   resetStage();
   if (!cur && !clearing) spawn();
   updateHud();
@@ -1582,6 +1616,178 @@ function updateStage(dt) {
 const HERO_HP = 600;
 const HERO_HURT_MS = 450;         // 攻撃を受けたときの、ダメージの絵を見せる時間
 let hero = { hero: true, hp: HERO_HP, maxHp: HERO_HP, shown: false, hurt: 0 };
+
+// ---- ルネリアのアイテム: くすりの瓶(体力回復)と、月の杖(月光波) ----
+// ライン消しで、まず瓶にくすりが溜まる。瓶が満タンのときは、あふれたぶんが杖の先の三日月に溜まる。
+// 瓶: いつでもタップで回復(足りないぶんだけ使い、残りは瓶に残る)。
+// 三日月: いつでもタップで月光波(溜まっているぶんを全部使う。溜まった割合だけ、大きく強くなる)
+const POTION_MAX = 300;                    // 瓶に入る量(回復できる体力)
+const LINE_GAIN = [0, 40, 100, 170, 260];  // ライン消しで溜まる量(同時に消した段数ごと。5段以上は4段と同じ)
+const MOON_MAX = 400;                      // 三日月が満タンになる量
+const MOON_ZAKO = 0.6, MOON_BOSS = 0.15;   // 満タンの月光波のダメージ(敵の最大体力に対する割合。防御は無視)。溜まった割合をかける
+const MOON_SPEED = 330;                    // 月光波の進む速さ(px/秒)
+let potion = 0, moon = 0, moonWave = null;
+const itemFx = { potion: 0, moon: 0, potionNo: 0, moonNo: 0, full: 0 };   // アイコンの光る演出(残りミリ秒)
+function resetItems() { potion = 0; moon = 0; moonWave = null; for (const k in itemFx) itemFx[k] = 0; }
+function gainItems(nLines) {
+  let add = LINE_GAIN[Math.min(nLines, LINE_GAIN.length - 1)];
+  if (!add) return;
+  const toPotion = Math.min(add, POTION_MAX - potion);
+  if (toPotion > 0) { potion += toPotion; itemFx.potion = 500; }
+  add -= toPotion;
+  if (add > 0 && moon < MOON_MAX) {
+    moon = Math.min(MOON_MAX, moon + add); itemFx.moon = 500;
+    if (moon >= MOON_MAX) { itemFx.full = 900; sfx('full'); }
+  }
+}
+function itemsBlocked() { return titleScreen || over || paused || stageClear || heroLose > 0; }
+function usePotion() {
+  if (itemsBlocked()) return;
+  const heal = Math.floor(Math.min(potion, hero.maxHp - hero.hp));
+  if (heal <= 0) { itemFx.potionNo = 300; return; }   // 体力が満タン、または瓶が空
+  hero.hp += heal; potion -= heal; hero.shown = true; itemFx.potion = 500;
+  const b = heroBox();
+  popups.push({ x: b.x + b.w / 2, y: Math.max(10, b.y), text: '+' + heal, color: '#7dff8a', t: 0, life: 1200 });
+  sfx('heal');
+}
+function fireMoon() {
+  if (itemsBlocked() || moonWave) return;
+  if (moon < 1) { itemFx.moonNo = 300; return; }   // 空っぽ
+  const pow = moon / MOON_MAX;
+  moon = 0; summonT = SUMMON_MS * 2;
+  moonWave = { x: staffTipX(), hit: new Set(), t: 0, pow };
+  sfx('moon');
+}
+function updateItemFx(dt) { for (const k in itemFx) if (itemFx[k] > 0) itemFx[k] -= dt; }
+function updateMoonWave(dt) {
+  const w = moonWave;
+  if (!w) return;
+  w.t += dt; w.x += MOON_SPEED * dt / 1000;
+  for (const e of enemies) {
+    if (e.dead || w.hit.has(e)) continue;
+    const b = enemyBox(e);
+    if (w.x < b.x + b.w * 0.3) continue;
+    w.hit.add(e);
+    const def = stats(e.key).def || 0;   // ダメージは最大体力の割合で決める(防御で減らないように、先に割り戻す)
+    hitUnit(e, w.pow * e.maxHp * (e.boss ? MOON_BOSS : MOON_ZAKO) / Math.max(0.05, 1 - def / 100), 1);
+  }
+  if (w.x > FIELD_W + 60) moonWave = null;
+}
+function drawMoonWave(g) {   // 三日月の形の光が、右へ飛んでいく
+  const w = moonWave;
+  if (!w) return;
+  const R = FIELD_H * 0.42 * (0.45 + 0.55 * w.pow), cy = FEET_Y - R * 0.95, cx = w.x - R * 0.55;   // 溜まった割合で大きさが変わる
+  g.save();
+  for (let i = 3; i >= 0; i--) {   // うしろに残像
+    const x = cx - i * 14;
+    g.globalAlpha = i ? 0.18 * (4 - i) / 3 : 1;
+    g.shadowColor = '#fff2a8'; g.shadowBlur = i ? 0 : 18;
+    g.beginPath();
+    g.arc(x, cy, R, -1.15, 1.15);
+    g.arc(x - R * 0.32, cy, R * 0.9, 1.05, -1.05, true);
+    g.closePath();
+    g.fillStyle = i ? '#ffe27a' : '#fffbe0'; g.fill();
+  }
+  g.restore();
+  for (let i = 0; i < 6; i++) {    // きらきら
+    const a = w.t / 90 + i * 1.7, x = w.x - 10 - (i * 23 + w.t / 3) % 70, y = cy + Math.sin(a) * R * 0.8;
+    g.fillStyle = i % 2 ? '#ffffff' : '#ffe27a';
+    g.fillRect(Math.round(x), Math.round(y), 2, 2);
+  }
+}
+
+// アイテムのボタン(右の欄)
+function itemCanvas(id) { const c = document.getElementById(id); return c && c.getContext && c.width ? c : null; }
+// くすりの瓶: ボタンの中に瓶の絵(image/bin_back.png: ガラス、bin_front.png: つや、bin_mask.png: 液体が入る形)
+const BIN_BACK = loadImg('image/bin_back.png'), BIN_FRONT = loadImg('image/bin_front.png'), BIN_MASK = loadImg('image/bin_mask.png');
+const BIN_IMG = 200, BIN_K = 0.8;                 // 絵の大きさ(px) / ボタンの中での倍率
+const LIQUID_TOP = 39, LIQUID_BOT = 197;          // 絵の中で、液体が入る範囲(上・下)
+const LIQUID_FULL = 0.9;                          // 瓶の中の液体は9割で満タン(首は空けておく)
+// ボタン(角丸の正方形): たまる前は暗いグレー、たまったところは明るいグレー。ボタン全体がゲージで、下からたまる
+const BTN = { dim: '#33353c', dimEdge: '#52555e', lit: '#c3c6ce', litEdge: '#eef0f4', r: 26 };
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function drawGaugeButton(c, level, inner, edge, shake) {   // inner(g, lit, lineY): 中の絵を描く
+  const g = c.getContext('2d'), S = c.width, m = 3, line = Math.round(S - m - level * (S - m * 2));
+  g.setTransform(1, 0, 0, 1, shake, 0);
+  g.clearRect(-10, 0, S + 20, S);
+  g.save();
+  roundRect(g, m, m, S - m * 2, S - m * 2, BTN.r); g.clip();
+  g.fillStyle = BTN.dim; g.fillRect(0, 0, S, S);
+  inner(g, false, line);
+  if (level > 0) {
+    g.save();
+    g.beginPath(); g.rect(0, line, S, S - line); g.clip();
+    g.fillStyle = BTN.lit; g.fillRect(0, 0, S, S);
+    inner(g, true, line);
+    g.restore();
+    if (level < 1) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(0, line, S, 2); }   // たまっているところの境目
+  }
+  g.restore();
+  roundRect(g, m, m, S - m * 2, S - m * 2, BTN.r);
+  g.lineWidth = 4; g.strokeStyle = edge || (level >= 1 ? BTN.litEdge : BTN.dimEdge); g.stroke();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+const liquidLayer = (() => { const c = document.createElement('canvas'); c.width = c.height = BIN_IMG; return c; })();
+function drawBottleInner(g, lit, line, S) {
+  if (!BIN_BACK.complete || !BIN_BACK.naturalWidth) return;
+  const w = BIN_IMG * BIN_K, x0 = (S - w) / 2, y0 = (S - w) / 2;
+  if (lit && BIN_MASK.complete && BIN_MASK.naturalWidth) {   // 瓶の中だけ緑。液面はゲージの高さ(ただし9割で満タン)
+    const top = LIQUID_BOT - LIQUID_FULL * (LIQUID_BOT - LIQUID_TOP);
+    const surf = Math.max(top, (line - y0) / BIN_K);
+    const lg = liquidLayer.getContext('2d');
+    lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, BIN_IMG, BIN_IMG);
+    const grad = lg.createLinearGradient(0, surf, 0, LIQUID_BOT);
+    grad.addColorStop(0, '#7cf59a'); grad.addColorStop(0.35, '#3fd96a'); grad.addColorStop(1, '#16983e');
+    lg.fillStyle = grad; lg.fillRect(0, surf, BIN_IMG, BIN_IMG - surf);
+    lg.fillStyle = 'rgba(220,255,225,0.9)'; lg.fillRect(0, surf, BIN_IMG, 3);   // 液面
+    lg.globalCompositeOperation = 'destination-in'; lg.drawImage(BIN_MASK, 0, 0);
+    lg.globalCompositeOperation = 'source-over';
+    g.drawImage(liquidLayer, x0, y0, w, w);
+  }
+  g.globalAlpha = lit ? 1 : 0.32;   // たまる前は暗く
+  g.drawImage(BIN_BACK, x0, y0, w, w);
+  if (BIN_FRONT.complete && BIN_FRONT.naturalWidth) g.drawImage(BIN_FRONT, x0, y0, w, w);
+  g.globalAlpha = 1;
+}
+// 月光波のボタン: 中に三日月と星の絵(image/moon-cross-icon.png)。たまる前は暗く、彩度を下げる
+const MOON_ICON = loadImg('image/moon-cross-icon.png');
+const MOON_ICON_K = 0.7;          // ボタンの中での大きさ(ボタンの幅に対する割合)
+let moonDim = null;
+function drawMoonInner(g, lit, line, S) {
+  const img = MOON_ICON;
+  if (!img.complete || !img.naturalWidth) return;
+  const k = S * MOON_ICON_K / Math.max(img.naturalWidth, img.naturalHeight);
+  const w = img.naturalWidth * k, h = img.naturalHeight * k, x = (S - w) / 2, y = (S - h) / 2;
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  if (lit) { g.drawImage(img, x, y, w, h); return; }
+  if (!moonDim) {   // 暗い絵: 暗いグレーを上から重ねる(絵の形の中だけ)
+    moonDim = document.createElement('canvas'); moonDim.width = img.naturalWidth; moonDim.height = img.naturalHeight;
+    const d = moonDim.getContext('2d');
+    d.drawImage(img, 0, 0);
+    d.globalCompositeOperation = 'source-atop'; d.fillStyle = 'rgba(58,60,68,0.72)'; d.fillRect(0, 0, moonDim.width, moonDim.height);
+  }
+  g.drawImage(moonDim, x, y, w, h);
+}
+function drawItems(t) {
+  const mc = itemCanvas('moonItem'), pc = itemCanvas('potionItem');
+  const pulse = 0.5 + 0.5 * Math.sin(t / 170);
+  if (mc) {
+    const full = moon >= MOON_MAX && !moonWave;
+    const edge = itemFx.moon > 0 ? '#ffffff' : full ? `rgba(255,226,122,${0.55 + 0.45 * pulse})` : null;   // 満タンは金色に光る
+    const shake = itemFx.moonNo > 0 ? Math.round(Math.sin(itemFx.moonNo / 25) * 3) : 0;
+    drawGaugeButton(mc, moon / MOON_MAX, (g, lit, line) => drawMoonInner(g, lit, line, mc.width), edge, shake);
+  }
+  if (pc) {
+    const usable = potion >= 1 && hero.hp < hero.maxHp && !itemsBlocked();   // 使えるときは、ふちが緑に光って知らせる
+    const edge = itemFx.potion > 0 ? '#ffffff' : usable ? `rgba(125,255,138,${0.45 + 0.55 * pulse})` : null;
+    const shake = itemFx.potionNo > 0 ? Math.round(Math.sin(itemFx.potionNo / 25) * 3) : 0;
+    drawGaugeButton(pc, potion / POTION_MAX, (g, lit, line) => drawBottleInner(g, lit, line, pc.width), edge, shake);
+  }
+}
 function heroBox() {
   return { x: heroX() + 19 * HERO_K, y: FEET_Y + 2 - 104 * HERO_K, w: 71 * HERO_K, h: 104 * HERO_K };
 }
@@ -1693,75 +1899,89 @@ function drawDoorFront(g) {         // キャラより手前: 開いた扉の手
   if (doorAjar()) drawDoorPart(g, 'front');
   if (door.unlocked && !door.open) drawHpBar(g, DOOR_X + DOOR_W / 2, 6, DOOR_W - 8, door.hp / door.maxHp, ATTR_COLOR[door.attr]);
 }
-// ---- タイトル画面: 読み込んだら最初に出す。キー・ボタン・画面のタップで始まる ----
+// ---- タイトル画面: ゲームの画面とは別の画面。カラフルなロゴ・サブタイトル・ぴょこぴょこ跳ねる卵・ルネリア ----
+// 下に「スタート / せってい / あそびかた」。タップ・クリック、キー(↑↓ と Enter)、パッド(十字キーと A)で選ぶ
 const GAME_TITLE = 'EGG QUEST';
-let titleScreen = true, titleT = 0;
+let titleScreen = true, titleT = 0, titleSel = 0;
+const titleEl = document.getElementById('title'), titleCv = document.getElementById('titleCv');
+const TITLE_W = 480, TITLE_H = 450;   // タイトルの絵の中の座標
+const TITLE_LOGO_PX = 80, TITLE_LOGO_Y = [82, 162], TITLE_SUB_Y = 210;   // ロゴの文字の大きさ・2段の高さ / サブタイトルの高さ
+function titleItems() {
+  return [['スタート', startGame], ['せってい', () => openMenu('settings')], ['あそびかた', () => openMenu('help')]];
+}
+function renderTitle() {
+  if (!titleEl || !titleEl.querySelector) return;
+  renderList(titleEl.querySelector('.list'), titleItems(), titleSel, i => { titleSel = i; });
+}
+function showTitle(on) {
+  titleScreen = on;
+  if (titleEl && titleEl.classList) { titleEl.classList.toggle('hide', !on); if (on) { titleSel = 0; renderTitle(); fitTitle(); } }
+}
 function startGame() {
   if (!titleScreen) return;
-  titleScreen = false;
+  showTitle(false);
   stageIntroT = 2000;               // 「STAGE 1」を見せてから始める
   sfx('clear', 1);
 }
-// フィールドの上: 背景・ルネリアの上に、ロゴ(1文字ずつ属性の色で、ふわふわ上下)
-function drawTitleField(g) {
-  g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, 0, FIELD_W, FIELD_H);
-  const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];   // ステージの順の色
-  g.font = pixFont(48); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-  const chars = [...zen(GAME_TITLE)], widths = chars.map(c => g.measureText(c).width);
-  let x = (FIELD_W - widths.reduce((a, b) => a + b, 0)) / 2;
-  let ci = 0;
-  chars.forEach((c, i) => {
-    const y = FIELD_H * 0.44 + Math.sin(titleT / 380 - i * 0.6) * 3;
-    if (c !== '　') {
-      g.lineWidth = 8; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, x, y);
-      g.fillStyle = cols[ci++ % cols.length]; g.fillText(c, x, y);
-      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, x, y - 2);   // 上側を少し明るく(立体感)
-      g.fillStyle = cols[(ci - 1) % cols.length]; g.globalAlpha = 0.85; g.fillText(c, x, y); g.globalAlpha = 1;
-    }
-    x += widths[i];
-  });
-  g.textAlign = 'center'; g.font = pixFont(16);
-  g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,0.85)';
-  g.strokeText('ルネリアと たまごの ぼうけん', FIELD_W / 2, FIELD_H * 0.44 + 26);
-  g.fillStyle = '#ffe9a8'; g.fillText('ルネリアと たまごの ぼうけん', FIELD_W / 2, FIELD_H * 0.44 + 26);
+function backToTitle() { closeMenu(); reset(); restartBgm(); showTitle(true); }
+// 絵の大きさ: 画面の幅(と高さ)に合わせる。ボタンのぶんの高さは空けておく
+function fitTitle() {
+  if (!titleCv || !titleCv.style) return;
+  const w = Math.max(200, Math.min(innerWidth - 16, TITLE_W * 1.25, (innerHeight - 300) * TITLE_W / TITLE_H));
+  const dpr = window.devicePixelRatio || 1;
+  titleCv.style.width = Math.round(w) + 'px'; titleCv.style.height = Math.round(w * TITLE_H / TITLE_W) + 'px';
+  titleCv.width = Math.round(w * dpr); titleCv.height = Math.round(w * TITLE_H / TITLE_W * dpr);
 }
-// 盤面の上: 7色の水玉の卵が順にぴょこぴょこ跳ねる。スタートの案内と操作
-function drawTitleBoard(g) {
-  g.fillStyle = 'rgba(8,10,16,0.82)'; g.fillRect(0, 0, cv.width, cv.height);
-  const names = 'SJILZOT', nx = names.length;
+const TITLE_STARS = Array.from({ length: 40 }, (_, i) => [(i * 97 + 31) % TITLE_W, (i * 53 + 17) % (TITLE_H - 60), i % 3]);   // 夜空の星(決まった位置)
+function drawTitle() {
+  if (!titleCv || !titleCv.getContext || !titleCv.width) return;
+  const g = titleCv.getContext('2d'), k = titleCv.width / TITLE_W;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, titleCv.width, titleCv.height);
+  g.setTransform(k, 0, 0, k, 0, 0);
+  for (const [x, y, s] of TITLE_STARS) {   // きらきらまたたく星
+    g.globalAlpha = 0.25 + 0.5 * (0.5 + 0.5 * Math.sin(titleT / 500 + x));
+    g.fillStyle = s ? '#c8b2ee' : '#ffe9a8'; g.fillRect(x, y, s === 2 ? 2 : 1.5, s === 2 ? 2 : 1.5);
+  }
+  g.globalAlpha = 1;
+  // ロゴ: 1文字ずつ属性の色で、ふわふわ上下
+  const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];   // ステージの順の色
+  // 「EGG」と「QUEST」の2段にして、大きく
+  g.font = pixFont(TITLE_LOGO_PX); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  let ci = 0, n = 0;
+  GAME_TITLE.split(' ').forEach((word, line) => {
+    const chars = [...zen(word)], widths = chars.map(c => g.measureText(c).width);
+    let x = (TITLE_W - widths.reduce((a, b) => a + b, 0)) / 2;
+    chars.forEach((c, i) => {
+      const y = TITLE_LOGO_Y[line] + Math.sin(titleT / 380 - (n++) * 0.6) * 5;
+      const col = cols[ci++ % cols.length];
+      g.lineWidth = 12; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, x, y);
+      g.fillStyle = col; g.fillText(c, x, y);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, x, y - 3);   // 上側を少し明るく(立体感)
+      g.fillStyle = col; g.globalAlpha = 0.85; g.fillText(c, x, y); g.globalAlpha = 1;
+      x += widths[i];
+    });
+  });
+  g.textAlign = 'center'; g.font = pixFont(32);
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.85)';
+  g.strokeText('ルネリアと たまごの ぼうけん', TITLE_W / 2, TITLE_SUB_Y);
+  g.fillStyle = '#ffe9a8'; g.fillText('ルネリアと たまごの ぼうけん', TITLE_W / 2, TITLE_SUB_Y);
+  // ルネリア(よろこぶ姿)
+  const img = HERO_IMG.happy;
+  if (img.complete && img.naturalWidth) {
+    const hk = 160 / img.naturalHeight, w = img.naturalWidth * hk, h = img.naturalHeight * hk;
+    const [src] = pixSrc(g, img, hk * k);
+    g.drawImage(src, Math.round(TITLE_W / 2 - w / 2), Math.round(392 - h + Math.sin(titleT / 700) * 2), Math.round(w), Math.round(h));
+  }
+  // 7色の水玉の卵が、順にぴょこぴょこ跳ねる
+  const names = 'SJILZOT', nx = names.length, EK = 1.5;
+  g.save(); g.translate(TITLE_W / 2, 418); g.scale(EK, EK);
   for (let i = 0; i < nx; i++) {
     const sh = SHAPES[names[i]], under = SHAPES[names[(i + 3) % nx]];
     const ph = ((titleT / 900) - i / nx) % 1, hop = ph < 0.25 ? Math.sin(ph / 0.25 * Math.PI) * 10 : 0;
-    drawEgg(g, cv.width / 2 + (i - (nx - 1) / 2) * 38, 150 - hop, sh.color, false, true, under.color);
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.beginPath(); g.ellipse((i - (nx - 1) / 2) * 40, 14, 11 - hop * 0.4, 3, 0, 0, Math.PI * 2); g.fill();   // 影
+    drawEgg(g, (i - (nx - 1) / 2) * 40, -hop, sh.color, false, true, under.color);
   }
-  g.textAlign = 'center';
-  g.fillStyle = '#ffe27a'; g.font = pixFont(32);
-  g.fillText(zen('EGG QUEST'), cv.width / 2, 100);
-  if (Math.floor(titleT / 600) % 2 === 0) {
-    g.fillStyle = '#ffffff'; g.font = pixFont(16);
-    g.fillText(touchMode ? 'がめんを タップで スタート' : zen('PRESS ANY KEY'), cv.width / 2, 232);
-  }
-  g.font = pixFont(16);
-  let y = 300;
-  if (touchMode && gMode === 'flick') {   // フリック: 1行ずつ「操作」と「動き」を2段で(盤面の幅に収める)
-    for (const [k, v] of [['よこに ドラッグ', 'いどう'], ['ひだり / みぎを タップ', 'かいてん'], ['したの 2わりを タップ', '1マス おとす(ながおしで れんぞく)'], ['したへ はじく', 'すぐ おとす']]) {
-      g.fillStyle = '#ffe27a'; g.fillText(k, cv.width / 2, y);
-      g.fillStyle = '#ffffff'; g.fillText(v, cv.width / 2, y + 20);
-      y += 50;
-    }
-  } else {
-    g.fillStyle = '#c8d0e0'; g.fillText('スマホは がめんを タップ', cv.width / 2, 258);
-    y = 320;
-    const help = [['← →', 'いどう'], ['↑ ' + zen('X') + ' / ' + zen('Z'), 'かいてん'], ['↓', '1マス おとす'], [zen('SPACE'), 'すぐ おとす'],
-                  [zen('P'), 'ポーズ'], [zen('M'), zen('BGM') + ' オン/オフ'], [zen('R'), 'リスタート']];
-    for (const [k, v] of help) {
-      g.textAlign = 'right'; g.fillStyle = '#ffe27a'; g.fillText(k, cv.width / 2 - 12, y);
-      g.textAlign = 'left'; g.fillStyle = '#ffffff'; g.fillText(v, cv.width / 2 + 4, y);
-      y += 26;
-    }
-  }
-  g.textAlign = 'center'; g.fillStyle = '#9aa3b8';
-  g.fillText('たまごを かさねて ラインを けそう', cv.width / 2, y + 22);
+  g.restore();
 }
 function drawStageText(g) {
   if (titleScreen) return;
@@ -1788,7 +2008,7 @@ let bossShown = null;   // いま表示しているボス(変わったときだ�
 function attrChip(a) { return '<span class="attr" style="background:' + ATTR_COLOR[a] + '">' + a + '</span>'; }
 const CARD_ZAKO_K = 0.7, CARD_BOSS_K = 1.15;   // カードの絵の大きさ(枠に収めた大きさに対する倍率)
 function updateBossCard() {
-  const e = frontEnemy();
+  const e = enemies.find(x => x.boss && !x.dead);   // カードはボスのときだけ出す
   const card = bossEl('boss');
   if (!card) return;
   if (!e) {
@@ -1971,8 +2191,8 @@ function drawField() {
     drawMonsters(g);
   }
   drawFx(g);
+  drawMoonWave(g);
   drawStageText(g);
-  if (titleScreen) drawTitleField(g);
   g.setTransform(1, 0, 0, 1, 0, 0);
 }
 
@@ -1982,7 +2202,8 @@ function drawPiece(g, name, ox, oy, s, alpha = 1) {
 }
 
 function draw() {
-  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(BOARD_K, 0, 0, BOARD_K, 0, 0);
+  ctx.clearRect(0, 0, BW, BH);
   ctx.strokeStyle = '#1b1e27'; ctx.lineWidth = 1;
   for (let x = 1; x < COLS; x++) { ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, ROWS * CELL); ctx.stroke(); }
   for (let y = 1; y < ROWS; y++) { ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(COLS * CELL, y * CELL); ctx.stroke(); }
@@ -2025,30 +2246,32 @@ function draw() {
   nctx.clearRect(0, 0, nv.width, nv.height);
   {
     const name = queue[0], sh = SHAPES[name];
-    drawPiece(nctx, name, (nv.width - sh.n * 24) / 2, 10, 24);
+    // 枠の真ん中に置く(ミノの形の、実際に埋まっているマスの範囲で)
+    const xs = sh.cells.map(c => c[0]), ys = sh.cells.map(c => c[1]);
+    const w = (Math.max(...xs) - Math.min(...xs) + 1) * NEXT_CELL, h = (Math.max(...ys) - Math.min(...ys) + 1) * NEXT_CELL;
+    drawPiece(nctx, name, (nv.width - w) / 2 - Math.min(...xs) * NEXT_CELL, (nv.height - h) / 2 - Math.min(...ys) * NEXT_CELL, NEXT_CELL);
   }
 
 
   if (stageClear) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, BW, BH);
     ctx.fillStyle = '#ffe27a'; ctx.textAlign = 'center'; ctx.font = pixFont(32);
-    ctx.fillText(zen('QUEST CLEAR'), cv.width / 2, cv.height / 2 - 10);
-    ctx.fillStyle = '#fff'; ctx.font = pixFont(16); ctx.fillText('次のステージへ', cv.width / 2, cv.height / 2 + 20);
+    ctx.fillText(zen('QUEST CLEAR'), BW / 2, BH / 2 - 10);
+    ctx.fillStyle = '#fff'; ctx.font = pixFont(16); ctx.fillText('次のステージへ', BW / 2, BH / 2 + 20);
   }
   if (over || paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillRect(0, 0, BW, BH);
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
     ctx.font = pixFont(32);
-    ctx.fillText(zen(!over ? 'PAUSE' : overReason === 'ending' ? 'THE END' : overReason === 'clear' ? 'QUEST CLEAR' : 'QUEST FAILED'), cv.width / 2, cv.height / 2 - 10);
+    ctx.fillText(zen(!over ? 'PAUSE' : overReason === 'ending' ? 'THE END' : overReason === 'clear' ? 'QUEST CLEAR' : 'QUEST FAILED'), BW / 2, BH / 2 - 10);
     if (over) {
       ctx.font = pixFont(16);
       const why = overReason === 'ending' ? 'ラスボスをたおした! ぼうけんクリア!' : overReason === 'clear' ? '扉が開いた!' : overReason === 'enemy' ? '' : 'ブロックが積み上がった';
-      if (why) ctx.fillText(why, cv.width / 2, cv.height / 2 + 20);
-      ctx.font = pixFont(16); ctx.fillText(zen('R') + 'でリスタート', cv.width / 2, cv.height / 2 + 46);
+      if (why) ctx.fillText(why, BW / 2, BH / 2 + 20);
+      ctx.font = pixFont(16); ctx.fillText(touchMode ? 'うえの がめんを タップで メニュー' : zen('R') + 'でリスタート', BW / 2, BH / 2 + 46);
     }
   }
-  if (titleScreen) drawTitleBoard(ctx);
 }
 
 // ---- 入力(PartlyRainy と同じ操作): キーボード・ジョイパッド・スマホ(フリック / ボタン) ----
@@ -2063,9 +2286,83 @@ function act(name) {
   ACTIONS[name]();
   updateHud();
 }
-function togglePause() { if (!over && !titleScreen) { paused = !paused; if (paused) stopHolds(); } }
+function togglePause() { if (menuOpen) return; if (!over && !titleScreen) { paused = !paused; if (paused) stopHolds(); } }
+// ---- メニュー: ゲーム中は、上のダンジョンをタップ / Esc キー / パッドの START で開く(開いている間はポーズ)。
+// タイトル画面からは「せってい」「あそびかた」で開く ----
+let menuOpen = false, menuSel = 0, menuPaused = false, menuMode = 'game';   // game: ゲーム中 / settings: タイトルの設定 / help: あそびかた
+const menuEl = document.getElementById('menu');
+function settingItems() {
+  const list = [['ＢＧＭ: ' + (bgmMuted ? 'オフ' : 'オン'), () => { toggleBgm(); renderMenu(); }]];
+  if (touchMode) list.push(['そうさ: ' + (gMode === 'flick' ? 'フリック' : 'ボタン'), () => {
+    gMode = gMode === 'flick' ? 'buttons' : 'flick'; store.set('eq_mode', gMode); applyMode(); fitAll(); renderMenu(); }]);
+  return list;
+}
+function menuItems() {   // [ラベル, 動き]
+  if (menuMode === 'help') return [['とじる', closeMenu]];
+  if (menuMode === 'settings') return [['とじる', closeMenu], ...settingItems()];
+  return [[over ? 'とじる' : 'つづける', closeMenu], ['リスタート', () => { closeMenu(); restartGame(); }], ...settingItems(),
+          ['タイトルへ', backToTitle]];
+}
+// あそびかた(操作は、スマホかキーボードかで変える)
+function helpLines() {
+  const keys = touchMode && gMode === 'flick'
+    ? [['よこに ドラッグ', 'いどう'], ['ひだり / みぎを タップ', 'かいてん'], ['したの 2わりを タップ', '1マス おとす(ながおしで れんぞく)'], ['したへ はじく', 'すぐ おとす'],
+       ['びんの ボタン', 'くすり(かいふく)'], ['つきの ボタン', 'げっこうは'], ['うえの がめんを タップ', 'メニュー']]
+    : touchMode
+    ? [['がめんの ボタン', 'いどう・かいてん・おとす'], ['びんの ボタン', 'くすり(かいふく)'], ['つきの ボタン', 'げっこうは'], ['うえの がめんを タップ', 'メニュー']]
+    : [['← →', 'いどう'], ['↑ / X / Z', 'かいてん'], ['↓', '1マス おとす'], ['SPACE', 'すぐ おとす'], ['C / テンキー +', 'くすり(かいふく)'],
+       ['V / テンキー ENTER', 'げっこうは'], ['ESC', 'メニュー'], ['P', 'ポーズ'], ['M', 'BGM オン/オフ'], ['R', 'リスタート']];
+  return { keys, notes: ['たまごを かさねて ラインを けそう', '水玉の たまごから モンスターが うまれて たたかうよ', 'ラインを けすと くすりと げっこうはが たまるよ'] };
+}
+// ボタンの列を作る(タイトルとメニューで共通)
+function renderList(box, items, sel, onPick) {
+  if (!box) return;
+  box.innerHTML = '';
+  items.forEach(([label, fn], i) => {
+    const b = document.createElement('button');
+    b.textContent = label; if (i === sel) b.className = 'sel';
+    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); startBgm(); onPick(i); fn(); });
+    box.appendChild(b);
+  });
+}
+function renderMenu() {
+  if (!menuEl || !menuEl.querySelector) return;
+  menuEl.querySelector('.title').textContent = menuMode === 'help' ? 'あそびかた' : menuMode === 'settings' ? 'せってい' : 'メニュー';
+  const help = menuEl.querySelector('.help');
+  help.innerHTML = '';
+  if (menuMode === 'help') {
+    const { keys, notes } = helpLines();
+    for (const [k, v] of keys) { const r = document.createElement('div'); r.className = 'row'; r.innerHTML = '<span class="k"></span><span class="v"></span>'; r.children[0].textContent = k; r.children[1].textContent = v; help.appendChild(r); }
+    for (const n of notes) { const r = document.createElement('div'); r.className = 'note'; r.textContent = n; help.appendChild(r); }
+  }
+  renderList(menuEl.querySelector('.list'), menuItems(), menuSel, i => { menuSel = i; });
+}
+function openMenu(mode) {
+  if (menuOpen || !menuEl || !menuEl.classList) return;
+  menuMode = mode || (titleScreen ? 'settings' : 'game');
+  menuOpen = true; menuSel = 0; menuPaused = paused;
+  if (!titleScreen) { paused = true; stopHolds(); }
+  menuEl.classList.add('open'); renderMenu();
+}
+function closeMenu() {
+  if (!menuOpen) return;
+  menuOpen = false;
+  if (!titleScreen) paused = menuPaused;
+  menuEl.classList.remove('open');
+}
+// いま操作しているボタンの列(メニュー → タイトル)。上下で選ぶ(dir = -1 / 1)、0 で決定
+function listKey(dir) {
+  if (menuOpen) {
+    const list = menuItems();
+    if (dir) { menuSel = (menuSel + dir + list.length) % list.length; renderMenu(); } else list[menuSel][1]();
+  } else if (titleScreen) {
+    const list = titleItems();
+    if (dir) { titleSel = (titleSel + dir + list.length) % list.length; renderTitle(); } else list[titleSel][1]();
+  }
+}
+if (menuEl && menuEl.addEventListener) menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) { e.preventDefault(); closeMenu(); } });   // 外側をタップで閉じる
 function restartGame() { reset(); restartBgm(); }
-function toggleBgm() { bgmMuted = !bgmMuted; updateBgm(); }
+function toggleBgm() { bgmMuted = !bgmMuted; updateBgm(); if (bgmMuted) stopGameOver(); }
 // 押しっぱなしで連続: 最初の待ち DAS のあと、REPEAT の間隔でくり返す(OS のキーリピートは使わない)
 const REPEAT = { left: 60, right: 60, soft: 45 }, DAS = 120;
 const holds = {};
@@ -2089,9 +2386,16 @@ addEventListener('keydown', e => {
   if (a || k === 'Space') e.preventDefault();
   startBgm();
   if (k === 'KeyM') { if (!e.repeat) toggleBgm(); return; }
-  if (titleScreen) { if (!e.repeat) startGame(); return; }   // タイトル画面: どのキーでも始まる
+  if (k === 'Escape') { if (!e.repeat) { if (menuOpen) closeMenu(); else openMenu(); } return; }   // タイトルでは「せってい」が開く
+  if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選んで、Enter / Space / Z / X で決定
+    if (k === 'ArrowUp' || k === 'ArrowDown') listKey(k === 'ArrowUp' ? -1 : 1);
+    else if (!e.repeat && ['Enter', 'NumpadEnter', 'Space', 'KeyZ', 'KeyX'].includes(k)) listKey(0);
+    return;
+  }
   if (k === 'KeyR') { if (!e.repeat) restartGame(); return; }
-  if (k === 'KeyP' || k === 'Escape') { if (!e.repeat) togglePause(); return; }
+  if (k === 'KeyC' || k === 'NumpadAdd') { if (!e.repeat) usePotion(); return; }   // くすりの瓶(C / テンキーの +)
+  if (k === 'KeyV' || k === 'NumpadEnter') { if (!e.repeat) fireMoon(); return; }   // 月光波(V / テンキーの Enter)
+  if (k === 'KeyP') { if (!e.repeat) togglePause(); return; }
   if (!a || e.repeat) return;
   holdStart('k:' + k, a);
 });
@@ -2114,7 +2418,7 @@ for (const btn of document.querySelectorAll ? document.querySelectorAll('#touch 
   const up = e => { e.preventDefault(); btn.classList.remove('on'); holdStop(id); };
   btn.addEventListener('pointerdown', e => {
     e.preventDefault(); btn.classList.add('on'); startBgm();
-    if (titleScreen) { if (cmd !== 'bgm') startGame(); else toggleBgm(); return; }
+    if (titleScreen) return;
     if (cmd === 'pause') togglePause(); else if (cmd === 'restart') restartGame(); else if (cmd === 'bgm') toggleBgm();
     else if (a) holdStart(id, a);
   });
@@ -2127,7 +2431,7 @@ for (const btn of document.querySelectorAll ? document.querySelectorAll('#touch 
 let g = null;
 const HOLD_MS = 600, HOLD_REPEAT_MS = 90;   // 動かさずにこれより長く押したら長押し。連続の間隔
 const vw = () => innerWidth, vh = () => innerHeight;
-function boardCellPx() { const r = cv.getBoundingClientRect(); return CELL * (r.width / cv.width || 1); }
+function boardCellPx() { const r = cv.getBoundingClientRect(); return CELL * (r.width / BW || 1); }
 function gHoldStop() { if (g) { clearTimeout(g.hold); clearInterval(g.rep); g.hold = g.rep = null; } }
 function gHoldStart() {   // 画面の下端を押し続けると、1マスずつ連続で下げる
   if (!g || g.axis || g.fingers > 1 || over || g.y0 <= vh() * 0.8) return;
@@ -2135,13 +2439,13 @@ function gHoldStart() {   // 画面の下端を押し続けると、1マスず�
   act('soft');
   g.rep = setInterval(() => act('soft'), HOLD_REPEAT_MS);
 }
-const gestureOk = e => touchMode && gMode === 'flick' && !(e.target && e.target.closest && e.target.closest('#touch button'));
+const gestureOk = e => touchMode && gMode === 'flick' && !(e.target && e.target.closest && e.target.closest('#touch button, .item, #field, #menu, #title'));
 document.addEventListener('touchstart', e => {
   if (!gestureOk(e)) return;
   e.preventDefault();
   startBgm();
   const t = e.touches[0];
-  if (titleScreen) { startGame(); return; }
+  if (titleScreen) return;
   if (!g) { g = { x0: t.clientX, y0: t.clientY, ax: t.clientX, t0: performance.now(), fingers: e.touches.length, holding: false }; g.hold = setTimeout(gHoldStart, HOLD_MS); }
   else { g.fingers = Math.max(g.fingers, e.touches.length); gHoldStop(); }
 }, { passive: false });
@@ -2178,8 +2482,8 @@ document.addEventListener('touchend', e => {
 document.addEventListener('touchcancel', () => { gHoldStop(); g = null; });
 
 // ---- ジョイパッド(標準の配置): 十字キー・スティック=移動 / 下=1マス下げる / 上・RT=ハードドロップ /
-// A=右回転 / B・X=左回転 / START=ポーズ / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
-const PAD_MAP = { 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm' };
+// A=右回転 / B・X=左回転 / Y・LB=くすり / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
+const PAD_MAP = { 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm', 3: 'potion', 4: 'potion', 5: 'moon' };
 const padPrev = {}, padNext = {};
 function pollPad(t) {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -2188,7 +2492,7 @@ function pollPad(t) {
   if (!p) return;
   const B = i => !!(p.buttons[i] && p.buttons[i].pressed);
   const ax = p.axes[0] || 0, ay = p.axes[1] || 0;
-  const st = { left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false };
+  const st = { left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false, potion: false, moon: false };
   for (const i in PAD_MAP) if (B(+i)) st[PAD_MAP[i]] = true;
   const any = p.buttons.some(b => b && b.pressed);
   for (const k in st) {
@@ -2200,10 +2504,17 @@ function pollPad(t) {
     else if (REPEAT[k] && t >= padNext[k]) { fire = true; padNext[k] = t + REPEAT[k]; }
     if (!fire) continue;
     startBgm();
-    if (titleScreen) { if (k !== 'bgm') startGame(); else toggleBgm(); return; }
-    if (k === 'pause') togglePause(); else if (k === 'bgm') toggleBgm(); else act(k);
+    if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選ぶ / A で決定 / B・START でメニューを閉じる(タイトルでは START で始まる)
+      if (was) continue;
+      if (k === 'hard' || k === 'soft') listKey(k === 'hard' ? -1 : 1);
+      else if (k === 'rotR') listKey(0);
+      else if (menuOpen && (k === 'rotL' || k === 'pause')) closeMenu();
+      else if (!menuOpen && k === 'pause') startGame();
+      else if (k === 'bgm') { toggleBgm(); if (menuOpen) renderMenu(); }
+      continue;
+    }
+    if (k === 'pause') openMenu(); else if (k === 'bgm') toggleBgm(); else if (k === 'potion') usePotion(); else if (k === 'moon') fireMoon(); else act(k);
   }
-  if (titleScreen && any && !padPrev.anyWas) startGame();
   padPrev.anyWas = any;
 }
 
@@ -2223,13 +2534,13 @@ function fitScreen() {
   if (!wrap || !wrap.offsetWidth) return;
   wrap.style.transform = ''; wrap.style.margin = '';
   const W = wrap.offsetWidth, H = wrap.offsetHeight;
-  const k = Math.min(1, (innerWidth - 8) / W, (innerHeight - 8) / H);
+  const k = Math.min(1, (innerWidth - 8) / W, (innerHeight - wrap.offsetTop - 8) / H);   // 上の余白(body の padding)も入れて収める
   wrap.style.transformOrigin = 'top center';
   wrap.style.transform = 'scale(' + k + ')';
   // 縮めたぶん、まわりの余白も詰める(横スクロールや、下の空白が出ないように)
   wrap.style.margin = '0 ' + (W * (k - 1) / 2) + 'px ' + (H * (k - 1)) + 'px';
 }
-function fitAll() { fitField(); fitScreen(); }
+function fitAll() { fitField(); fitScreen(); fitTitle(); }
 addEventListener('resize', fitAll);
 addEventListener('orientationchange', fitAll);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
@@ -2240,19 +2551,26 @@ function loop(t) {
   const dt = Math.min(100, t - last); last = t;
   titleT += dt;
   pollPad(t);
-  if (titleScreen) { draw(); drawField(t); requestAnimationFrame(loop); return; }   // タイトル画面: ゲームは止めておく
+  if (titleScreen) { drawTitle(); requestAnimationFrame(loop); return; }   // タイトル画面: ゲームは止めておく
   update(dt);
   if (!paused && !over && !clearing) updateWobble(dt);
-  if (!paused && (!over || overReason === 'ending')) { if (!stageClear && !over) updateHatch(dt); updateMonsters(dt); updateEnemies(dt); updateBattle(dt); }
-  if (!paused) updateStage(dt);
+  if (!paused && (!over || overReason === 'ending')) { if (!stageClear && !over) updateHatch(dt); updateMonsters(dt); updateEnemies(dt); updateBattle(dt); updateMoonWave(dt); }
+  if (!paused) { updateStage(dt); updateItemFx(dt); }
   updateBossCard();
   watchBgm();
   for (const f of flash) f.t += dt;
   flash = flash.filter(f => f.t < 300);
   draw();
   drawField(t);
+  drawItems(t);
   requestAnimationFrame(loop);
 }
 reset();
-for (const el of [cv, fieldCv]) el.addEventListener('pointerdown', () => { if (titleScreen) startGame(); });   // タイトル画面は、画面のタップでも始まる
+// 右の欄のアイコン: タップ(クリック)で、くすりを使う・月光波を撃つ
+for (const [id, fn] of [['potionItem', usePotion], ['moonItem', fireMoon]]) {
+  const el = document.getElementById(id);
+  if (el && el.addEventListener) el.addEventListener('pointerdown', e => { e.preventDefault(); startBgm(); if (!titleScreen) fn(); });
+}
+fieldCv.addEventListener('pointerdown', () => { if (!titleScreen) openMenu(); });   // 上のダンジョンをタップでメニュー
+showTitle(true);
 requestAnimationFrame(loop);
