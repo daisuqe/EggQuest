@@ -804,9 +804,9 @@ function drawCell(g, px, py, s, color, links, conc, phase, lw = OUTLINE, ocol = 
   }
 }
 
-function drawEgg(g, cx, cy, color, hole, rivet, under) {
+function drawEgg(g, cx, cy, color, hole, rivet, under, k = 1) {   // k: 大きさの倍率(マスが大きいところ用)
   if (!hole && !rivet) return;
-  const es = rivet ? EGG_PX * RIVET_EGG_K : EGG_PX;   // 水玉の卵(合体した卵)は大きく
+  const es = (rivet ? EGG_PX * RIVET_EGG_K : EGG_PX) * k;   // 水玉の卵(合体した卵)は大きく
   const x0 = Math.round(cx - es / 2), y0 = Math.round(cy - es / 2);
   const smooth = g.imageSmoothingEnabled;
   g.imageSmoothingEnabled = false;
@@ -889,7 +889,7 @@ function drawGroup(g, items, alpha = 1) {
       t.fillRect(Math.min(xa, xb), Math.min(ya, yb), Math.abs(xb - xa), Math.abs(yb - ya));
     }
   }
-  for (const it of items) drawEgg(t, it.px + it.s / 2 + (it.dx || 0), it.py + it.s / 2, it.color, it.hole, it.rivet, it.under);
+  for (const it of items) drawEgg(t, it.px + it.s / 2 + (it.dx || 0), it.py + it.s / 2, it.color, it.hole, it.rivet, it.under, it.s / CELL);   // マスの大きさに合わせる(NEXT の枠など)
   if (t !== g) { g.globalAlpha = alpha; g.drawImage(scratch, 0, 0); g.globalAlpha = 1; }
 }
 // 落下予定: ミノの外形(角丸・凹み角つき)をブロックの色の1pxの線で、卵は白い線の円で表す
@@ -1537,10 +1537,12 @@ function nextStage() {             // 次のステージへ: 戦場(モンスタ
 
 // ルネリア: ふだんは fight、モンスターを出すときは fight2、敵に届かれたら damage → down、クリアで happy
 const HERO_IMG = {};
-for (const k of ['fight', 'fight2', 'damage', 'happy', 'down']) HERO_IMG[k] = loadImg('image/Luneria_' + k + '.png');
+for (const k of ['fight', 'fight2', 'damage', 'happy', 'down', 'move']) HERO_IMG[k] = loadImg('image/Luneria_' + k + '.png');
 const HERO_K = 0.658 * UNIT_K;             // 表示の倍率(元の絵の65.8%。fight の高さ106px → 約70px)
 const HERO_X = -9.3 * UNIT_K;               // 絵の左端の位置(絵の左側の余白ぶん外へ出す)
-const HERO_FOOT = { fight: 104, fight2: 104, damage: 106, happy: 126, down: 101 };   // 絵の中の足元の高さ
+const HERO_FOOT = { fight: 104, fight2: 104, damage: 106, happy: 126, down: 101, move: 136 };   // 絵の中の足元の高さ
+const HERO_OFFX = { move: 23 };
+const HERO_POSE_K = { move: 0.9 };   // 絵ごとの大きさの補正(move の絵は少し大きく描かれているので、ほかの絵にそろえる)   // 絵の横の位置のずれ(move の絵は左の余白がないので、体の真ん中を fight にそろえる)
 const HERO_LINE = 44 * UNIT_K;             // 敵がここまで来たら、ルネリアに届いた(ルネリアの右端あたり)
 const HERO_LOSE_MS = 700;         // 届かれてから倒れるまで(ダメージの絵を見せる)
 const HERO_TIP_X = 88;            // fight2 の絵の中の、杖の先(三日月)の横の位置
@@ -1588,6 +1590,7 @@ function stackOut() { return over && overReason !== 'enemy' && overReason !== 'c
 function heroPose() {
   if (over && overReason === 'enemy') return 'down';
   if (heroLose > 0 || hero.hurt > 0 || stackOut()) return 'damage';
+  if (exiting()) return 'move';     // 勝ったあと、扉を通って右へはける
   if (door.open || (over && overReason === 'ending')) return 'happy';
   if (summonT > 0) return 'fight2';
   return 'fight';
@@ -1795,12 +1798,13 @@ function drawHero(g) {
   const pose = heroPose(), img = HERO_IMG[pose];
   if (!img.complete || !img.naturalWidth) return;
   g.imageSmoothingEnabled = false;   // ドット絵は補間せず、ぼかさずに拡大・縮小する
-  const w = img.naturalWidth * HERO_K, h = img.naturalHeight * HERO_K;
+  const pk = HERO_K * (HERO_POSE_K[pose] || 1);
+  const w = img.naturalWidth * pk, h = img.naturalHeight * pk;
   const blink = (heroLose > 0 && Math.floor(heroLose / 70) % 2 === 0) || (hero.hurt > 0 && Math.floor(hero.hurt / 70) % 2 === 0);
   g.globalAlpha = blink ? 0.5 : 1;
-  const [src] = pixSrc(g, img, HERO_K * FIELD_SCALE);
+  const [src] = pixSrc(g, img, pk * FIELD_SCALE);
   const bob = stackOut() ? Math.abs(Math.sin(heroBack / 6)) * 1.5 : exitHop(exitT);   // あとずさり・はけるときの足どり
-  g.drawImage(src, Math.round(heroX()), Math.round(FEET_Y + 2 - HERO_FOOT[pose] * HERO_K - bob), Math.round(w), Math.round(h));
+  g.drawImage(src, Math.round(heroX() + (HERO_OFFX[pose] || 0) * HERO_K), Math.round(FEET_Y + 2 - HERO_FOOT[pose] * pk - bob), Math.round(w), Math.round(h));
   g.globalAlpha = 1;
   if (hero.shown && !(over && overReason === 'enemy')) {
     const b = heroBox();
@@ -1905,7 +1909,8 @@ const GAME_TITLE = 'EGG QUEST';
 let titleScreen = true, titleT = 0, titleSel = 0;
 const titleEl = document.getElementById('title'), titleCv = document.getElementById('titleCv');
 const TITLE_W = 480, TITLE_H = 450;   // タイトルの絵の中の座標
-const TITLE_LOGO_PX = 80, TITLE_LOGO_Y = [82, 162], TITLE_SUB_Y = 210;   // ロゴの文字の大きさ・2段の高さ / サブタイトルの高さ
+const TITLE_LOGO_Y = 78, TITLE_LOGO_MARGIN = 6, TITLE_SUB_Y = 124;   // ロゴの高さ・左右の余白 / サブタイトルの高さ
+const TITLE_HERO_H = 240;          // ルネリアの高さ(1.5倍)
 function titleItems() {
   return [['スタート', startGame], ['せってい', () => openMenu('settings')], ['あそびかた', () => openMenu('help')]];
 }
@@ -1945,21 +1950,23 @@ function drawTitle() {
   g.globalAlpha = 1;
   // ロゴ: 1文字ずつ属性の色で、ふわふわ上下
   const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];   // ステージの順の色
-  // 「EGG」と「QUEST」の2段にして、大きく
-  g.font = pixFont(TITLE_LOGO_PX); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-  let ci = 0, n = 0;
-  GAME_TITLE.split(' ').forEach((word, line) => {
-    const chars = [...zen(word)], widths = chars.map(c => g.measureText(c).width);
-    let x = (TITLE_W - widths.reduce((a, b) => a + b, 0)) / 2;
-    chars.forEach((c, i) => {
-      const y = TITLE_LOGO_Y[line] + Math.sin(titleT / 380 - (n++) * 0.6) * 5;
-      const col = cols[ci++ % cols.length];
-      g.lineWidth = 12; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, x, y);
-      g.fillStyle = col; g.fillText(c, x, y);
-      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, x, y - 3);   // 上側を少し明るく(立体感)
-      g.fillStyle = col; g.globalAlpha = 0.85; g.fillText(c, x, y); g.globalAlpha = 1;
-      x += widths[i];
-    });
+  // 1行で、幅いっぱい(ぎりぎり)に収まる大きさにする。「EGG」と「QUEST」の間は半文字ぶん
+  const chars = [...zen(GAME_TITLE)];
+  g.font = '100px Yodaka, Misaki, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  const w100 = chars.map(c => c === '　' ? 0 : g.measureText(c).width), gap100 = Math.max(...w100) / 2;
+  const total100 = w100.reduce((a, b) => a + b, 0) + gap100;
+  const px = 100 * (TITLE_W - TITLE_LOGO_MARGIN * 2) / total100, sc = px / 100;
+  g.font = px.toFixed(2) + 'px Yodaka, Misaki, sans-serif';
+  let x = TITLE_LOGO_MARGIN, ci = 0;
+  chars.forEach((c, i) => {
+    if (c === '　') { x += gap100 * sc; return; }
+    const y = TITLE_LOGO_Y + Math.sin(titleT / 380 - i * 0.6) * 4;
+    const col = cols[ci++ % cols.length];
+    g.lineWidth = px * 0.15; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, x, y);
+    g.fillStyle = col; g.fillText(c, x, y);
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, x, y - px * 0.04);   // 上側を少し明るく(立体感)
+    g.fillStyle = col; g.globalAlpha = 0.85; g.fillText(c, x, y); g.globalAlpha = 1;
+    x += w100[i] * sc;
   });
   g.textAlign = 'center'; g.font = pixFont(32);
   g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -1968,7 +1975,7 @@ function drawTitle() {
   // ルネリア(よろこぶ姿)
   const img = HERO_IMG.happy;
   if (img.complete && img.naturalWidth) {
-    const hk = 160 / img.naturalHeight, w = img.naturalWidth * hk, h = img.naturalHeight * hk;
+    const hk = TITLE_HERO_H / img.naturalHeight, w = img.naturalWidth * hk, h = img.naturalHeight * hk;
     const [src] = pixSrc(g, img, hk * k);
     g.drawImage(src, Math.round(TITLE_W / 2 - w / 2), Math.round(392 - h + Math.sin(titleT / 700) * 2), Math.round(w), Math.round(h));
   }
@@ -1983,12 +1990,42 @@ function drawTitle() {
   }
   g.restore();
 }
+// 勝ったときの文字: タイトルのロゴのように1文字ずつ色を変えて、上の方に大きく。1文字ずつポンと出て、ふわふわ上下
+const WIN_TEXT_Y = 0.36, WIN_TEXT_W = 0.92;   // 高さ(フィールドの高さに対する割合)/ 幅(扉より左の広さに対する割合。扉にかからないように)
+let winTextKey = null, winTextT0 = 0;
+function drawWinText(g, text) {
+  if (winTextKey !== text) { winTextKey = text; winTextT0 = titleT; }
+  const t = titleT - winTextT0;
+  const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];
+  const chars = [...zen(text)];
+  g.font = '100px Yodaka, Misaki, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  const area = door.none ? FIELD_W : DOOR_X;   // 扉があれば、扉より左に収める
+  const w100 = chars.map(c => g.measureText(c).width), sc = area * WIN_TEXT_W / w100.reduce((a, b) => a + b, 0), px = 100 * sc;
+  g.font = px.toFixed(2) + 'px Yodaka, Misaki, sans-serif';
+  let x = area * (1 - WIN_TEXT_W) / 2, ci = 0;
+  chars.forEach((c, i) => {
+    const w = w100[i] * sc, cx = x + w / 2; x += w;
+    if (c === '　') return;
+    const col = cols[ci++ % cols.length];
+    const p = Math.max(0, Math.min(1, (t - i * 60) / 260));   // 1文字ずつ、ポンと出る
+    if (p <= 0) return;
+    const pop = p < 1 ? 0.3 + 0.7 * p + Math.sin(p * Math.PI) * 0.35 : 1;
+    const y = FIELD_H * WIN_TEXT_Y + Math.sin(titleT / 380 - i * 0.6) * 3;
+    g.save(); g.translate(cx, y); g.scale(pop, pop);
+    g.lineWidth = px * 0.16; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, 0, 0);
+    g.fillStyle = col; g.fillText(c, 0, 0);
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, 0, -px * 0.04);   // 上側を少し明るく(立体感)
+    g.fillStyle = col; g.globalAlpha = 0.85; g.fillText(c, 0, 0);
+    g.restore();
+  });
+  g.textAlign = 'center';
+}
 function drawStageText(g) {
   if (titleScreen) return;
   let text = null, col = '#ffffff';
-  if (stageClear) { text = 'QUEST CLEAR!'; col = '#ffe27a'; }
+  if (stageClear) { drawWinText(g, 'QUEST CLEAR!'); return; }
   else if (over && overReason === 'enemy') { text = 'QUEST FAILED'; col = '#ff6a6a'; }
-  else if (over && overReason === 'ending') { text = 'ALL CLEAR!'; col = '#ffe27a'; }
+  else if (over && overReason === 'ending') { drawWinText(g, 'ALL CLEAR!'); return; }
   else if (stageIntroT > 0) { text = isFinalStage() ? 'FINAL STAGE' : 'STAGE ' + stage; g.globalAlpha = Math.min(1, stageIntroT / 500); }
   if (!text) return;
   text = zen(text);
@@ -2255,9 +2292,7 @@ function draw() {
 
   if (stageClear) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, BW, BH);
-    ctx.fillStyle = '#ffe27a'; ctx.textAlign = 'center'; ctx.font = pixFont(32);
-    ctx.fillText(zen('QUEST CLEAR'), BW / 2, BH / 2 - 10);
-    ctx.fillStyle = '#fff'; ctx.font = pixFont(16); ctx.fillText('次のステージへ', BW / 2, BH / 2 + 20);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = pixFont(32); ctx.fillText('次のステージへ', BW / 2, BH / 2);   // 「クエストクリア」は上のフィールドに大きく出す
   }
   if (over || paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
