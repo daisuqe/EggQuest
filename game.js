@@ -1100,7 +1100,7 @@ function drawMonsters(g) {
 
 // ---- 敵: 1ステージは ザコ10体 → ボス1体 ----
 // ザコ: image/enemy/enemy_<名前>.png(左向き)。属性なし。強さで3段階(tier)に分け、ステージが進むほど強いものが多く出る。
-// ボス: image/boss/BOSS_<キー>.png(左向き)。ステータスは同じキーのモンスター(MONSTERS)を巨大にしたもの
+// ボス: image/boss2/BOSS2_<キー>.png(左向き)。ステータスは同じキーのモンスター(MONSTERS)を巨大にしたもの
 const ENEMY_KEYS = ['ZZ', 'JJ', 'SS', 'OO', 'II', 'LL', 'TT'];   // ボスになるキー
 const ENEMY_H = Math.round(103 * UNIT_K);   // ボスの高さ(px)
 const ENEMY_SPEED_RATE = 1 / 8;   // ボスの速さ: こちらのモンスターの速さに対する倍率
@@ -1115,8 +1115,8 @@ const ENEMY_SPLASH = 0.6;         // ボスの攻撃は、届く範囲の味方�
 const ENEMY_RESPAWN = 5000;       // ステージが始まってから、最初の敵が出るまで(ミリ秒)
 const ENEMY_WALL = 0.12;          // こちらのモンスターが、敵の体にどれだけ重なれるか(敵の幅の割合)
 const ENEMY_IN = 0.6;             // 敵の体がこの割合まで扉から出たら、腰を据えて戦う
-const BOSS_FLOAT = { TT: 6 };     // ボスの浮く高さ(px)
-const BOSS_SINK = { SS: 5, II: 3, ZZ: 3 };   // 絵の下の余白(根の先など)で浮いて見えるボスを、この分だけ下げる(px)
+const BOSS_FLOAT = {};            // ボスの浮く高さ(px)。いまのボス(boss2)はみんな地面に立つ
+const BOSS_SINK = {};             // 絵の下の余白で浮いて見えるボスを、この分だけ下げる(px)。boss2 は足が絵の下の端まであるので不要
 const BOSS_ENTER_SHOW = 0.3;      // ボスは、体のこの割合が開いた扉(手前の扉板)から見えるまでは、
 const BOSS_ENTER_SPEED = 3;       // この倍の速さで出てくる(止まらず、こちらのモンスターを押しのける)
 const DOOR_FRONT_L = 123;         // 開いた扉の手前の扉板の左端(絵の中の横の位置)     // ボスの浮く高さ(px)
@@ -1151,7 +1151,7 @@ for (const k in ZAKO) { ZAKO[k].zako = true; ZAKO[k].tackle = ZAKO[k].atk; ZAKO[
 // 敵のステータス(ボスは同じキーのモンスター、ザコは ZAKO 表)
 function stats(key) { return MONSTERS[key] || ZAKO[key]; }
 const enemyImgs = {};
-for (const k of ENEMY_KEYS) enemyImgs[k] = loadImg('image/boss/BOSS_' + k + '.png');
+for (const k of ENEMY_KEYS) enemyImgs[k] = loadImg('image/boss2/BOSS2_' + k + '.png');
 for (const k in ZAKO) enemyImgs[k] = loadImg('image/enemy/enemy_' + k + '.png');
 function enemyImage(key) {        // 敵の絵(もとから左向き)。読み込み前は null
   const img = enemyImgs[key];
@@ -2037,8 +2037,10 @@ function drawStageText(g) {
 
 // ---- ボスの情報(右の欄の角丸の枠) ----
 const BOSS_NAME = {
-  ZZ: ['Burning Wyvern', 'バーニングワイバーン'], JJ: ['King Slime', 'キングスライム'], SS: ['Mega Tail', 'メガテイル'],
-  OO: ['Twin Horn', 'ツインホーン'], II: ['Frost Wing', 'フロストウィング'], LL: ['Rock Brute', 'ロックブルート'], TT: ['Big Eye', 'ビッグアイ'],
+  // ひとつ目の鎧のゴーレムたち(image/boss2)。ステージの属性に合わせた名前
+  SS: ['Moss Colossus', 'モスコロッサス'], JJ: ['Tide Sentinel', 'タイドセンチネル'], II: ['Frost Seraph', 'フロストセラフ'],
+  LL: ['Boulder Titan', 'ボルダータイタン'], ZZ: ['Blaze Golem', 'ブレイズゴーレム'], OO: ['Volt Knight', 'ボルトナイト'],
+  TT: ['Eclipse Lord', 'エクリプスロード'],
 };
 const bossEl = id => document.getElementById(id);
 let bossShown = null;   // いま表示しているボス(変わったときだけ絵や名前を書き直す)
