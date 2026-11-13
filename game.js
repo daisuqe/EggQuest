@@ -1441,6 +1441,7 @@ function attack(a, target) {
               splash: isEnemy && a.boss ? monsters.filter(m => m !== target && m.started && !m.dead && a.x - (m.x + monWidth(m)) <= (TACKLE_RANGE + 24) * RANGE_K) : [] });
     if (isEnemy && a.boss) {   // 体当たりのボスも、属性のエフェクトを出す(見た目だけ。ダメージは体当たりのほう)
       const attr = ATTR[a.key[0]], ef = EFX[attr], sb = unitBox(a), tb = unitBox(target);
+      muzzleFlash(sb.x + sb.w * 0.15, sb.y + sb.h * 0.5, attr, fk);
       if (ef.kind === 'ground') fx.push({ kind: 'ground', attr, vis: true, k: fk, t: 0, hitAt: 0, dur: ef.dur || ef.n * ef.ms, flip: true, gx: tb.x + tb.w });
       else fx.push({ kind: 'proj', attr, vis: true, k: fk, t: 0, hitAt: LUNGE_MS / 2, dur: LUNGE_MS / 2 + 120, flip: true,
                      x0: sb.x + sb.w * 0.15, y0: sb.y + sb.h * 0.5, x1: tb.x + tb.w / 2, y1: tb.y + tb.h * 0.5 });
@@ -1452,6 +1453,7 @@ function attack(a, target) {
   const ef = EFX[attr], sb = unitBox(a), tb = unitBox(target);
   const x0 = isEnemy ? sb.x + sb.w * 0.15 : sb.x + sb.w * 0.85, y0 = sb.y + sb.h * 0.5;
   const x1 = tb.x + tb.w / 2, y1 = tb.y + tb.h * 0.5;
+  muzzleFlash(x0, y0, attr, fk);   // 撃ち出す瞬間の光
   if (ef.kind === 'ground') {
     fx.push({ kind: 'ground', attr, k: fk, t: 0, hitAt: 250, dur: ef.dur || ef.n * ef.ms, flip: isEnemy, gx: isEnemy ? tb.x + tb.w : tb.x, target, power: p.atk * mul, mult, splash, atkKey: a.key });
   } else {
@@ -1875,7 +1877,7 @@ const MOON_ZAKO = 0.6, MOON_BOSS = 0.15;   // 満タンの月光波のダメー�
 const MOON_SPEED = 330;                    // 月光波の進む速さ(px/秒)
 let potion = 0, moon = 0, moonWave = null;
 const itemFx = { potion: 0, moon: 0, potionNo: 0, moonNo: 0, full: 0 };   // アイコンの光る演出(残りミリ秒)
-function resetItems() { potion = 0; moon = 0; moonWave = null; cast = null; sparks = []; for (const k in itemFx) itemFx[k] = 0; }
+function resetItems() { potion = 0; moon = 0; moonWave = null; cast = null; sparks = []; muzzles = []; for (const k in itemFx) itemFx[k] = 0; }
 function gainItems(nLines) {
   let add = LINE_GAIN[Math.min(nLines, LINE_GAIN.length - 1)];
   if (!add) return;
@@ -1919,7 +1921,7 @@ const CAST_MS = { heal: 450, moon: 650 };   // ための長さ(ミリ秒)
 const HERO_TIP_Y = 10;                      // fight2 の絵の中の、杖の先(三日月)の縦の位置
 let cast = null;                            // { kind, t, dur, go }
 let sparks = [];                            // 光の粒 { x, y, vx, vy, g, age, life, col, s, from, to }
-const castFx = { pillar: 0, ring: 0, flash: 0 };   // 放ったあとの演出の残り時間(ミリ秒)
+const castFx = { pillar: 0, ring: 0, flash: 0, shock: 0, rays: 0 };   // 放ったあとの演出の残り時間(ミリ秒)
 const CAST_COL = { heal: ['#7dff8a', '#d8ffe0', '#ffffff'], moon: ['#ffe27a', '#fff6c8', '#ffffff', '#c8b2ee'] };
 function staffTipY() { return FEET_Y + 2 - (HERO_FOOT.fight2 - HERO_TIP_Y) * HERO_K; }
 function heroCenter() { const b = heroBox(); return [b.x + b.w / 2, b.y + b.h * 0.55]; }
@@ -1928,6 +1930,34 @@ function startCast(kind, go) {
   cast = { kind, t: 0, dur: CAST_MS[kind], go };
   summonT = CAST_MS[kind] + 250;            // ためている間は、杖をかかげる
   sfx(kind === 'heal' ? 'healCharge' : 'moonCharge');
+}
+// 魔法を撃ち出す瞬間の光(属性の色)。k はボスのとき大きく
+let muzzles = [];                  // { x, y, col, t, k }
+const MUZZLE_MS = 260;
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function muzzleFlash(x, y, attr, k = 1) {
+  const col = hexRgb(ATTR_COLOR[attr] || '#ffffff');
+  muzzles.push({ x, y, col, t: 0, k });
+  const light = `rgb(${col.map(c => Math.round(c + (255 - c) * 0.55)).join(',')})`;   // 白っぽくした属性の色
+  for (let i = 0, n = Math.round(6 * k); i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = 50 * k * (0.5 + Math.random());
+    sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0, age: 0, life: 220 + Math.random() * 200,
+                  col: i % 3 ? light : '#ffffff', s: 1.5 + Math.random() * 1.5 });
+  }
+}
+function drawMuzzles(g) {
+  for (const m of muzzles) {
+    const q = m.t / MUZZLE_MS, a = 1 - q, [r, gg, b] = m.col, k = m.k;
+    const R = (9 + 14 * Math.sqrt(q)) * k;
+    const gr = g.createRadialGradient(m.x, m.y, 0, m.x, m.y, R);   // まんなかが白く光る玉
+    gr.addColorStop(0, `rgba(255,255,255,${0.95 * a})`); gr.addColorStop(0.4, `rgba(${r},${gg},${b},${0.75 * a})`); gr.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+    g.fillStyle = gr; g.beginPath(); g.arc(m.x, m.y, R, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = `rgba(${r},${gg},${b},${0.9 * a})`; g.lineWidth = 2 * k * a + 0.5;   // 広がる輪
+    g.beginPath(); g.arc(m.x, m.y, (5 + 24 * q) * k, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = 1.5;   // 十字にのびる光
+    const L = (8 + 18 * q) * k;
+    g.beginPath(); g.moveTo(m.x - L, m.y); g.lineTo(m.x + L, m.y); g.moveTo(m.x, m.y - L * 0.7); g.lineTo(m.x, m.y + L * 0.7); g.stroke();
+  }
 }
 function burstSparks(x, y, kind, n, speed, up) {
   const cols = CAST_COL[kind];
@@ -1939,6 +1969,8 @@ function burstSparks(x, y, kind, n, speed, up) {
 }
 function updateCast(dt) {
   for (const k in castFx) if (castFx[k] > 0) castFx[k] -= dt;
+  for (const m of muzzles) m.t += dt;
+  muzzles = muzzles.filter(m => m.t < MUZZLE_MS);
   for (const p of sparks) {
     p.age += dt;
     if (p.to) { const q = Math.min(1, p.age / p.life), e = q * q; p.x = p.from[0] + (p.to[0] - p.from[0]) * e; p.y = p.from[1] + (p.to[1] - p.from[1]) * e; }
@@ -1959,7 +1991,7 @@ function updateCast(dt) {
     cast = null;
     if (go() === false) return;
     if (kind === 'heal') { castFx.pillar = 700; castFx.ring = 600; burstSparks(cx, cy, 'heal', 26, 70, 40); }
-    else { castFx.flash = 260; fieldShake = 220; burstSparks(cx, cy, 'moon', 30, 110, 0); }
+    else { castFx.flash = 380; castFx.shock = 520; castFx.rays = 420; fieldShake = 320; burstSparks(cx, cy, 'moon', 56, 170, 0); }
   }
 }
 function drawCast(g) {
@@ -1990,11 +2022,31 @@ function drawCast(g) {
     gr.addColorStop(0, 'rgba(125,255,138,0)'); gr.addColorStop(0.5, `rgba(200,255,210,${0.75 * q})`); gr.addColorStop(1, 'rgba(125,255,138,0)');
     g.fillStyle = gr; g.fillRect(cx - w / 2, 0, w, FEET_Y + 4);
   }
+  if (castFx.shock > 0 || castFx.rays > 0) {   // 月光波: 杖の先から、衝撃の輪(2重)と8本の光の筋
+    const [cx, cy] = [staffTipX(), staffTipY()];
+    if (castFx.shock > 0) {
+      const q = 1 - castFx.shock / 520;
+      for (const [d, w] of [[0, 4], [0.18, 2]]) {
+        const qq = Math.max(0, q - d); if (qq <= 0) continue;
+        g.strokeStyle = `rgba(255,240,170,${0.9 * (1 - qq)})`; g.lineWidth = w * (1 - qq) + 0.5;
+        g.beginPath(); g.arc(cx, cy, 8 + 120 * qq, 0, Math.PI * 2); g.stroke();
+      }
+    }
+    if (castFx.rays > 0) {
+      const q = 1 - castFx.rays / 420;
+      g.strokeStyle = `rgba(255,250,215,${1 - q})`; g.lineWidth = 3 * (1 - q) + 0.5;
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4 + Math.PI / 8, r0 = 10 + 50 * q, r1 = r0 + 30 + 40 * (1 - q);
+        g.beginPath(); g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); g.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); g.stroke();
+      }
+    }
+  }
   if (castFx.ring > 0) {                // 回復: 足もとから広がる輪
     const q = 1 - castFx.ring / 600, [cx] = heroCenter();
     g.strokeStyle = `rgba(160,255,170,${1 - q})`; g.lineWidth = 2.5;
     g.beginPath(); g.ellipse(cx, FEET_Y, 10 + 40 * q, 3 + 10 * q, 0, 0, Math.PI * 2); g.stroke();
   }
+  drawMuzzles(g);
   for (const s of sparks) {             // 光の粒(ドットのような四角)
     g.globalAlpha = s.to ? Math.min(1, s.age / 80) : 1 - s.age / s.life;
     g.fillStyle = s.col; g.fillRect(Math.round(s.x - s.s / 2), Math.round(s.y - s.s / 2), s.s, s.s);
@@ -2002,7 +2054,7 @@ function drawCast(g) {
   g.globalAlpha = 1;
   g.restore();
   if (castFx.flash > 0) {               // 月光波: 画面が白く光る
-    g.fillStyle = `rgba(255,252,230,${0.55 * castFx.flash / 260})`; g.fillRect(0, 0, FIELD_W, FIELD_H);
+    g.fillStyle = `rgba(255,252,230,${0.7 * castFx.flash / 380})`; g.fillRect(0, 0, FIELD_W, FIELD_H);
   }
 }
 function updateItemFx(dt) { for (const k in itemFx) if (itemFx[k] > 0) itemFx[k] -= dt; }
