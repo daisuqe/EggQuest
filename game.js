@@ -76,6 +76,23 @@ function spawn() {
   dropTimer = 0; lockTimer = 0; lockResets = 0;
   if (check(cur.cells, cur.x, cur.y) === null) over = true;
 }
+// Swap: 落ちているミノと NEXT のミノを、その場で入れかえる(上から出し直さない)。
+// 何度でも入れかえられる(2つのミノを行ったり来たり)。新しいミノは今のミノの真ん中にそろえて置き、
+// ふさがっていたら回転と同じように少しずらして置ける場所を探す。どこも置けなければ入れかえない
+const SWAP_KICKS = [[0, 0], [-1, 0], [1, 0], [0, -1], [-2, 0], [2, 0], [-1, -1], [1, -1], [0, -2]];
+function swapPiece() {
+  if (!cur) return;
+  const name = queue[0], s = SHAPES[name], cells = s.cells.map(c => c.slice());
+  const d = Math.trunc((cur.n - s.n) / 2), bx = cur.x + d, by = cur.y + d;   // 行ったり来たりしても位置がずれないように trunc
+  for (const [kx, ky] of SWAP_KICKS) {
+    if (check(cells, bx + kx, by + ky) !== 0) continue;   // 回転と同じく、穴同士の重なりには入れない
+    queue[0] = cur.name;
+    cur = { name, n: s.n, color: s.color, r: 0, cells, x: bx + kx, y: by + ky };
+    resetLock();   // 置くまでの猶予は回転と同じ数え方(何度入れかえても、いつまでも止まってはいられない)
+    sfx('rotate');
+    return;
+  }
+}
 
 let playMs = 0;
 function reset() {
@@ -356,6 +373,19 @@ function ensureCtx() {
   if (actx.state === 'suspended') actx.resume();
   return actx;
 }
+// iPhone(Safari)は、音を出せるようになるのが「指を離したとき(touchend)・クリック・キー」の操作の中だけ。
+// 画面にさわった瞬間(touchstart・pointerdown)に作った音の準備は止まったままになるので、指を離したときにもう一度動かす。
+// 古い iOS 向けに、無音を一瞬鳴らしておく。音が出せる状態になったら、もう何もしない
+function unlockAudio() {
+  const c = ensureCtx();
+  if (!c) return;
+  if (c.state === 'running' && unlockAudio.done) { if (!bgm) startBgm(); return; }
+  if (c.state !== 'running') c.resume();
+  try { const b = c.createBuffer(1, 1, 22050), src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start(0); } catch (e) {}
+  if (c.state === 'running') unlockAudio.done = true;
+  startBgm(); updateBgm();
+}
+for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) addEventListener(ev, unlockAudio, { passive: true, capture: true });
 // [開始Hz, 終了Hz, 長さ(秒), 音量, 開始の遅れ(秒)]
 const SFX = {
   move:   [[392, 392, .06, .085]],
@@ -1016,11 +1046,18 @@ const monsterImgs = {};
 for (const k in MONSTERS) monsterImgs[k] = loadImg('image/monster/' + k + '.png');
 const MON_GROW = 1.2;       // 同じモンスターが加わるたびに大きくなる倍率
 const MON_GROW_MAX = 1.8;   // 大きくなる上限(元の大きさに対する倍率)
+// ---- ずかん: 出会ったモンスター(味方・敵)と、ステージをクリアした回数(ルネリアのカードの開封)を端末に覚えておく ----
+const ZUKAN_KEY = 'eq_zukan';
+const zukan = (() => { try { const d = JSON.parse(localStorage.getItem(ZUKAN_KEY) || 'null'); if (d && d.m && d.e) return d; } catch (e) {} return { m: {}, e: {}, clears: 0 }; })();
+function saveZukan() { try { localStorage.setItem(ZUKAN_KEY, JSON.stringify(zukan)); } catch (e) {} }
+function zukanSee(kind, key) { if (!zukan[kind][key]) { zukan[kind][key] = 1; saveZukan(); } }
+function zukanClear() { zukan.clears = (zukan.clears || 0) + 1; saveZukan(); }
 function spawnMonsters(keys, batchN = keys.length) {
   // まとめて発生させたモンスター(batchN 体)は、全員の攻撃力が (n-1) x 10% 上がる
   const atkMul = 1 + (batchN - 1) * 0.1;
   // 速いモンスターから先に出す
   const order = keys.filter(k => MONSTERS[k]).sort((a, b) => MONSTERS[b].spd - MONSTERS[a].spd);
+  for (const k of order) zukanSee('m', k);
   for (const k of order) {
     // 同じモンスターがもういれば、新しく出さずに、その体力を足して少し大きくする
     const ex = monsters.find(m => m.key === k && !m.dead);
@@ -1170,7 +1207,7 @@ const BOSS_ENTER_SHOW = 0.3;      // ボスは、体のこの割合が開いた�
 const BOSS_ENTER_SPEED = 3;       // この倍の速さで出てくる(止まらず、こちらのモンスターを押しのける)
 const DOOR_FRONT_L = 123 * 200 / 695;   // 開いた扉の手前の扉板の左端(絵の中の横の位置。元の大きな絵での位置 123 を、いまの絵の大きさに直したもの)
 const ZAKO_PER_STAGE = 5;         // 1ステージのザコの数(2種類が交互に出る)
-const ZAKO_TIERS = [[1, 1], [1, 2], [2, 2], [2, 3], [2, 3], [3, 3], [3, 3]];   // ステージごとの、2種類のザコの強さの段階
+const ZAKO_TIERS = [[1, 1], [1, 2], [1, 2], [2, 3], [2, 3], [3, 3], [3, 3]];   // ステージごとの、2種類のザコの強さの段階(ステージ3は難しすぎたので、2と同じに)
 const ZAKO_MIX = [0, 0, 1, 0, 1];                    // 出てくる順(0 = 1種類目、1 = 2種類目)
 const ZAKO_INTERVAL = 6000;       // ザコが次々に出てくる間隔(ミリ秒)
 const ZAKO_SCALE = 1.69 * UNIT_K;   // ザコの表示の大きさ(下の表の高さ h に対する倍率)
@@ -1246,6 +1283,7 @@ function bossEntering(e) {         // ボスが扉から出てくる途中(体�
   return e.boss && edge - e.x < enemySize(e)[0] * BOSS_ENTER_SHOW;
 }
 function spawnEnemy(key) {
+  zukanSee('e', key);
   const boss = !ZAKO[key], p = stats(key), mul = stageMul();
   const hp = Math.round(p.hp * (boss ? ENEMY_HP_MUL : ZAKO_HP_MUL) * mul);
   // 出発位置: 開いた扉の手前の扉板から、ぎりぎり見えるところ(扉のない最終ステージは画面の右の外から)
@@ -1256,7 +1294,7 @@ function spawnEnemy(key) {
 function bossMove(key) { return BOSS_FAST[key] || BOSS_MOVE; }
 const ZAKO_SPEED_MUL = 0.9;        // ザコの移動の速さの倍率
 // ボスの移動の速さ(px/秒)。平均3、いちばん遅いのと速いのの差は1.8倍まで(足の速そうな雷・氷が速め、地が遅め)
-const BOSS_SPEED = { SS: 2.6, JJ: 2.69, II: 3.68, LL: 2.25, ZZ: 2.95, OO: 4.0, TT: 2.82 };
+const BOSS_SPEED = { SS: 2.6, JJ: 2.69, II: 3.0, LL: 2.25, ZZ: 2.95, OO: 4.0, TT: 2.82 };   // 氷(II)はステージ3がきびしかったので 3.68 → 3.0
 function enemySpeed(e) {
   const p = stats(e.key);
   return e.boss ? BOSS_SPEED[e.key] : p.spd * ZAKO_SPEED_MUL;
@@ -1559,6 +1597,7 @@ function isFinalStage() { return stage >= STAGE_ORDER.length; }
 const ENDING_BONUS = 10000;       // ラスボスを倒したときのボーナス
 function startEnding() {          // ラスボスを倒した: 戦場を一掃してエンディング
   over = true; overReason = 'ending'; cur = null; stopHolds();
+  zukanClear();   // 最終ステージのクリアも1回に数える
   const bonus = ENDING_BONUS;
   score += bonus; updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: 4000, size: 16, still: true });
@@ -1610,6 +1649,7 @@ function openDoor() {               // 扉が開いた: ステージクリア。
   if (door.open) return;
   door.open = true; door.openT = 0;
   stageClear = true; stageClearT = DOOR_OPEN_MS + CLEAR_SHOW_MS;
+  zukanClear();
   const bonus = STAGE_BONUS * stage;
   score += bonus; updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: stageClearT, size: 16, still: true });
@@ -1664,7 +1704,8 @@ async function sendScore() {
     const r = await fetch(SCORE_API + '/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, score, stage: finalStage(), lines, cleared: overReason === 'ending', duration: Math.round(playMs) }) });
     const j = await r.json();
-    if (r.ok && j.ok) { rank.sent = true; rank.myRank = j.rank; rank.myName = j.name; rank.msg = T('rankIs').replace('{n}', j.rank); menuMode = 'ranking'; menuSel = 0; loadRanking(); }
+    // 自己ベストを超えていないときは登録されない(updated: false)
+    if (r.ok && j.ok) { rank.sent = true; rank.myRank = j.rank; rank.myName = j.name; rank.msg = j.updated === false ? T('notBest').replace('{b}', j.best) : T('rankIs').replace('{n}', j.rank); menuMode = 'ranking'; menuSel = 0; loadRanking(); }
     else rank.msg = T(j.error === 'below_cutoff' ? 'notTop' : j.error === 'too_fast' ? 'tooFast' : j.error === 'too_many' ? 'tooMany' : 'rankFail');
   } catch (e) { rank.msg = T('rankFail'); }
   rank.sending = false; if (menuOpen) renderMenu();
@@ -2072,6 +2113,19 @@ function drawMoonInner(g, lit, line, S) {   // 瓶と同じ大きさ(32x32 の�
   }
   g.drawImage(moonDim, x, y, w, h);
 }
+// 満タンのしるし: ボタンの中を、半透明の正方形8個がぐるぐる回る(公転だけで、正方形そのものは回らない)
+const ORBIT_N = 8, ORBIT_R = 0.456, ORBIT_SIZE = 37, ORBIT_MS = 2600;   // 数 / 回る円の半径(ボタンの幅に対する割合) / 正方形の大きさ(px) / 1周の時間(ミリ秒)
+function drawOrbit(c, t, col) {
+  const g = c.getContext('2d'), S = c.width, cx = S / 2, cy = S / 2, R = S * ORBIT_R, a0 = t / ORBIT_MS * Math.PI * 2;
+  g.save();
+  roundRect(g, 5, 5, S - 10, S - 10, BTN.r); g.clip();   // ボタンの枠の内側だけに描く(大きく回るので、はみ出すところは隠す)
+  g.fillStyle = col;
+  for (let i = 0; i < ORBIT_N; i++) {
+    const a = a0 + i * Math.PI * 2 / ORBIT_N, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    g.fillRect(Math.round(x - ORBIT_SIZE / 2), Math.round(y - ORBIT_SIZE / 2), ORBIT_SIZE, ORBIT_SIZE);
+  }
+  g.restore();
+}
 function drawItems(t) {
   const mc = itemCanvas('moonItem'), pc = itemCanvas('potionItem');
   const pulse = 0.5 + 0.5 * Math.sin(t / 170);
@@ -2080,12 +2134,14 @@ function drawItems(t) {
     const edge = itemFx.moon > 0 ? '#ffffff' : full ? `rgba(255,226,122,${0.55 + 0.45 * pulse})` : null;   // 満タンは金色に光る
     const shake = itemFx.moonNo > 0 ? Math.round(Math.sin(itemFx.moonNo / 25) * 3) : 0;
     drawGaugeButton(mc, moon / MOON_MAX, (g, lit, line) => drawMoonInner(g, lit, line, mc.width), edge, shake);
+    if (moon >= MOON_MAX) drawOrbit(mc, t, 'rgba(255,226,80,0.75)');   // 満タン: 黄色の正方形が回る
   }
   if (pc) {
     const usable = potion >= 1 && hero.hp < hero.maxHp && !itemsBlocked();   // 使えるときは、ふちが緑に光って知らせる
     const edge = itemFx.potion > 0 ? '#ffffff' : usable ? `rgba(125,255,138,${0.45 + 0.55 * pulse})` : null;
     const shake = itemFx.potionNo > 0 ? Math.round(Math.sin(itemFx.potionNo / 25) * 3) : 0;
     drawGaugeButton(pc, potion / POTION_MAX, (g, lit, line) => drawBottleInner(g, lit, line, pc.width), edge, shake);
+    if (potion >= POTION_MAX) drawOrbit(pc, t, 'rgba(110,215,255,0.75)');   // 満タン: 水色の正方形が回る(中身の色に合わせる)
   }
 }
 function heroBox() {
@@ -2113,12 +2169,12 @@ function drawDangerFrame(g) {
   g.strokeStyle = `rgba(255,50,50,${a})`; g.lineWidth = 10; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 太めの縁(見えるのは内側の 5px)
   g.restore();
 }
-// スマホ: 上の画面の右上に、一時停止のマーク(縦の2本線)を半透明(50%)で出す。上の画面をタップすると止まる(メニュー)ことを知らせる
+// スマホ: 上の画面の右上に、一時停止のマーク(縦の2本線)を濃さ80%で出す。上の画面をタップすると止まる(メニュー)ことを知らせる
 function drawPauseHint(g) {
   if (!touchMode || titleScreen) return;
-  const w = 5, h = 18, gap = 5, x = FIELD_W - 10 - (w * 2 + gap), y = 8;
+  const w = 10, h = 36, gap = 10, x = FIELD_W - 10 - (w * 2 + gap), y = 8;
   g.save();
-  g.globalAlpha = 0.5;
+  g.globalAlpha = 0.8;
   g.fillStyle = 'rgba(0,0,0,0.7)';   // うすい黒のふち(明るい背景でも見えるように)
   g.fillRect(x - 1.5, y - 1.5, w + 3, h + 3); g.fillRect(x + w + gap - 1.5, y - 1.5, w + 3, h + 3);
   g.fillStyle = '#ffffff';
@@ -2240,14 +2296,45 @@ const TITLE_W = 480, TITLE_H = 450;   // タイトルの絵の中の座標
 const TITLE_LOGO_Y = 78, TITLE_LOGO_MARGIN = 6, TITLE_SUB_Y = 124;   // ロゴの高さ・左右の余白 / サブタイトルの高さ
 const TITLE_HERO_H = 240;          // ルネリアの高さ(1.5倍)
 function titleItems() {
-  const list = [[T('start'), () => { clearSave(); startGame(); }], [T('settings'), () => openMenu('settings')], [T('howto'), () => openMenu('help')]];
+  const list = [[T('start'), askNewGame], [T('zukan'), () => openMenu('zukan')], [T('settings'), () => openMenu('settings')], [T('howto'), () => openMenu('help')]];
   if (SCORE_API) list.splice(1, 0, [T('ranking'), openRanking]);   // ランキング(サーバーの URL があるときだけ)
   if (readSave()) list.unshift([T('cont'), continueGame]);   // 途中データがあれば「つづきから」をいちばん上に
   return list;
 }
 function renderTitle() {
   if (!titleEl || !titleEl.querySelector) return;
-  renderList(titleEl.querySelector('.list'), titleItems(), titleSel, i => { titleSel = i; });
+  const box = titleEl.querySelector('.list');
+  renderList(box, titleItems(), titleSel, i => { titleSel = i; });
+  // 2列に並べる。「つづきから」がないときは「スタート」だけ横いっぱい
+  if (box && box.firstChild && !readSave()) box.firstChild.classList.add('wide');
+  fitTitleFonts();
+}
+// ボタンの文字が入りきらないときは、入るまで小さくする(英語の「HOW TO PLAY」など)
+function fitTitleFonts() {
+  if (!titleEl || !titleEl.querySelectorAll || !titleScreen) return;
+  for (const b of titleEl.querySelectorAll('.list button')) {
+    b.style.fontSize = '';
+    let px = parseFloat(getComputedStyle(b).fontSize) || 28;
+    while (b.scrollWidth > b.clientWidth && px > 12) { px -= 2; b.style.fontSize = px + 'px'; }
+  }
+}
+// タイトルのボタンを、上下左右で選ぶ(2列の並びのとおりに動く)
+function titleMove(dx, dy) {
+  const bs = titleEl && titleEl.querySelectorAll ? [...titleEl.querySelectorAll('.list button')] : [];
+  const cur = bs[titleSel]; if (!cur) return;
+  const c = b => { const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const [x0, y0] = c(cur);
+  let best = -1, bestD = Infinity;
+  bs.forEach((b, i) => {
+    if (i === titleSel) return;
+    const [x, y] = c(b), ddx = x - x0, ddy = y - y0;
+    if (dy && Math.sign(ddy) !== dy || dy && Math.abs(ddy) < 4) return;   // 上下: その向きの段だけ
+    if (dx && (Math.abs(ddy) > 4 || Math.sign(ddx) !== dx)) return;     // 左右: 同じ段だけ
+    const d = dy ? Math.abs(ddy) * 4 + Math.abs(ddx) : Math.abs(ddx);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  if (best < 0 && dy) best = dy > 0 ? 0 : bs.length - 1;   // はしまで来たら反対側へ回る
+  if (best >= 0) { titleSel = best; renderTitle(); }
 }
 function showTitle(on) {
   titleScreen = on;
@@ -2263,10 +2350,11 @@ function backToTitle() { clearSave(); closeMenu(); reset(); restartBgm(); showTi
 // 絵の大きさ: 画面の幅(と高さ)に合わせる。ボタンのぶんの高さは空けておく
 function fitTitle() {
   if (!titleCv || !titleCv.style) return;
-  const w = Math.max(200, Math.min(innerWidth - 16, TITLE_W * 1.25, (innerHeight - 300) * TITLE_W / TITLE_H));
+  const w = Math.max(200, Math.min(innerWidth - 16, TITLE_W * 1.25, (innerHeight - 250) * TITLE_W / TITLE_H));
   const dpr = window.devicePixelRatio || 1;
   titleCv.style.width = Math.round(w) + 'px'; titleCv.style.height = Math.round(w * TITLE_H / TITLE_W) + 'px';
   titleCv.width = Math.round(w * dpr); titleCv.height = Math.round(w * TITLE_H / TITLE_W * dpr);
+  fitTitleFonts();
 }
 // 夜空の星: タイトル画面全体(後ろのキャンバス titleBg)に散らす。[x, y(画面に対する割合), 色, 大きさ(px), 十字に光るか]
 // 8個に1個は十字に光る星(十字の長さは決まった長さ)。ほかは 4〜7px の四角い星
@@ -2624,9 +2712,23 @@ function drawPiece(g, name, ox, oy, s, alpha = 1) {
   drawGroup(g, pieceItems(sh.cells, sh.color, ox, oy, s, false), alpha);
 }
 
+// 体力が赤(25%以下)のとき、盤面でも知らせる: 盤面の枠を赤く点滅させ、盤面の中もうっすら赤く点滅させる
+const DANGER_BOARD_A = 0.1;        // 盤面の中の赤の濃さ(いちばん濃いとき。ブロックが見にくくならないように薄く)
+let dangerBorderOn = false;
+function dangerPulse() { return 0.5 + 0.5 * Math.sin(titleT / 450); }   // 上の画面の赤い縁と同じ速さ(約2.8秒で1回)
+function drawDangerBoard() {
+  const on = heroDanger();
+  if (cv.style && (on || dangerBorderOn)) {   // 枠: 白に近いグレー(#d8dbe2) と 赤 のあいだを行き来する
+    if (on) { const p = dangerPulse(), m = (a, b) => Math.round(a + (b - a) * p); cv.style.borderColor = `rgb(${m(216, 255)},${m(219, 50)},${m(226, 50)})`; }
+    else cv.style.borderColor = '';
+    dangerBorderOn = on;
+  }
+  if (on) { ctx.fillStyle = `rgba(255,40,40,${DANGER_BOARD_A * dangerPulse()})`; ctx.fillRect(0, 0, BW, BH); }
+}
 function draw() {
   ctx.setTransform(BOARD_K, 0, 0, BOARD_K, 0, 0);
   ctx.clearRect(0, 0, BW, BH);
+  drawDangerBoard();
   ctx.strokeStyle = '#1b1e27'; ctx.lineWidth = 1;
   for (let x = 1; x < COLS; x++) { ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, ROWS * CELL); ctx.stroke(); }
   for (let y = 1; y < ROWS; y++) { ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(COLS * CELL, y * CELL); ctx.stroke(); }
@@ -2700,7 +2802,7 @@ function draw() {
 const ACTIONS = {
   left: () => tryMove(-1, 0), right: () => tryMove(1, 0),
   rotL: () => rotate(-1), rotR: () => rotate(1),
-  soft: softStep, hard: hardDrop,
+  soft: softStep, hard: hardDrop, swap: swapPiece,
 };
 function act(name) {
   if (titleScreen || over || paused || clearing || stageClear || !cur) return;
@@ -2724,12 +2826,48 @@ function setLang(l) {
   lang = l; store.set('eq_lang', l);
   applyLangHtml(); bossShown = null; renderMenu(); renderTitle(); fitAll();
 }
+// ---- 確認(はい / やめる)。メッセージと、はいのときの動き・やめたときの戻り先を覚えておく ----
+let confirmState = null;           // { msg, yesLabel, yes, back }
+function askConfirm(msg, yesLabel, yes, back) {
+  confirmState = { msg, yesLabel, yes, back };
+  if (menuOpen) { menuMode = 'confirm'; menuSel = 1; renderMenu(); }   // メニューの中から: 同じ枠のまま確認に切りかえる
+  else openMenu('confirm');
+}
+// 「もどる」(Esc・パッドの B・枠の外をタップ): 確認のときは、やめたときと同じ
+function menuBack() {
+  if (menuMode === 'confirm' && confirmState && confirmState.back) confirmState.back();
+  else if (menuMode === 'help' && helpFromGame !== null) helpBack();   // ゲーム中のメニューから開いたあそびかたは、メニューにもどる
+  else closeMenu();
+}
+// ゲーム中のメニューの「あそびかた」: 同じ枠のまま切りかえ、とじるとメニューにもどる
+let helpFromGame = null;           // 開く前に選んでいた項目(メニューから開いたときだけ)
+function openGameHelp() { helpFromGame = menuSel; menuMode = 'help'; menuSel = 0; renderMenu(); }
+function helpBack() { menuMode = 'game'; menuSel = helpFromGame; helpFromGame = null; renderMenu(); }
+// リスタート: 遊んでいる途中なら、終わらせてよいか聞く(ゲームオーバーのあとは聞かない)
+function askRestart() {
+  const go = () => { closeMenu(); restartGame(); };
+  if (over) { go(); return; }
+  askConfirm(T('qRestart'), T('restart'), go, () => { menuMode = 'game'; menuSel = 0; renderMenu(); });
+}
+// タイトルの「スタート」: 途中データがあるときは、消えてよいか聞く
+// タイトルへ: 遊んでいる途中なら、終わらせてよいか聞く(ゲームオーバーのあとは聞かない)
+function askToTitle() {
+  if (over) { backToTitle(); return; }
+  const back = menuSel;
+  askConfirm(T('qToTitle'), T('toTitle'), backToTitle, () => { menuMode = 'game'; menuSel = back; renderMenu(); });
+}
+function askNewGame() {
+  const go = () => { closeMenu(); clearSave(); startGame(); };
+  if (!readSave()) { go(); return; }
+  askConfirm(T('qNewGame'), T('start'), go, closeMenu);
+}
 function menuItems() {   // [ラベル, 動き]
-  if (menuMode === 'help') return [[T('close'), closeMenu]];
+  if (menuMode === 'confirm') return [[confirmState.yesLabel, confirmState.yes], [T('cancel'), menuBack]];
+  if (menuMode === 'help' || menuMode === 'zukan') return [[T('close'), menuBack]];
   if (menuMode === 'submit') return rank.sent ? [[T('close'), closeMenu]] : [[T('regBtn'), sendScore], [T('close'), closeMenu]];
   if (menuMode === 'ranking') return [[T('close'), closeMenu]];
   if (menuMode === 'settings') return [...settingItems(), [T('close'), closeMenu]];   // とじる(つづける)は、いちばん下
-  return [[T('restart'), () => { closeMenu(); restartGame(); }], ...settingItems(), [T('toTitle'), backToTitle],
+  return [[T('restart'), askRestart], ...settingItems(), [T('howto'), openGameHelp], [T('toTitle'), askToTitle],
           [T(over ? 'close' : 'resume'), closeMenu]];
 }
 // あそびかた(操作は、スマホかキーボードかで変える)
@@ -2748,28 +2886,91 @@ function renderList(box, items, sel, onPick) {
     box.appendChild(b);
   });
 }
+// ---- ずかんの画面 ----
+// ルネリアのカード(3枚)。ステージを1回クリアでスタンダード、2回でファイト、3回で笑顔。
+// 絵は data/card1..3.bin(PNG に、かんたんな XOR をかけたもの)。読み込んでからもとに戻して表示する
+const CARD_N = 3, CARD_KEY = 'EggQuest-Luneria';
+const cardUrls = [];
+async function cardUrl(i) {
+  if (cardUrls[i]) return cardUrls[i];
+  const r = await fetch('data/card' + (i + 1) + '.bin');
+  const b = new Uint8Array(await r.arrayBuffer());
+  for (let j = 0; j < b.length; j++) b[j] ^= CARD_KEY.charCodeAt(j % CARD_KEY.length);
+  return (cardUrls[i] = URL.createObjectURL(new Blob([b], { type: 'image/png' })));
+}
+const cardViewEl = document.getElementById('cardView');
+function openCard(i) {
+  if (!cardViewEl) return;
+  cardUrl(i).then(u => { cardViewEl.querySelector('img').src = u; cardViewEl.classList.add('open'); }).catch(() => {});
+}
+function closeCard() { if (cardViewEl && cardViewEl.classList) cardViewEl.classList.remove('open'); }
+if (cardViewEl && cardViewEl.addEventListener) cardViewEl.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); closeCard(); });
+function renderZukan(box) {
+  const add = (tag, cls, text, parent = box) => { const d = document.createElement(tag); if (cls) d.className = cls; if (text != null) d.textContent = text; parent.appendChild(d); return d; };
+  const open = Math.min(CARD_N, zukan.clears || 0);
+  if (open) {   // 1枚も開いていないときは、カードの欄そのものを出さない
+  add('div', 'h', T('zCards') + ' ' + open + '/' + CARD_N);
+  const cards = add('div', 'zk-cards');
+  for (let i = 0; i < CARD_N; i++) {
+    if (i < open) {
+      const c = add('div', 'zk-card', null, cards), img = add('img', '', null, c);
+      img.alt = ''; cardUrl(i).then(u => { img.src = u; }).catch(() => {});
+      c.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); openCard(i); });
+    } else add('div', 'zk-card locked', T('zLocked').replace('{n}', i + 1), cards);
+  }
+  }
+  // 出会ったモンスターだけ並べる(まだ出てきていないものは出さない)
+  const grid = (title, keys, kind, total) => {
+    add('div', 'h', title + ' ' + keys.length + '/' + total);
+    if (!keys.length) { add('div', 'note', T('zNone')); return; }
+    const g = add('div', 'zk-grid');
+    for (const k of keys) {
+      const cell = add('div', 'zk-cell', null, g), img = add('img', '', null, cell);
+      img.alt = ''; img.src = (kind === 'm' ? monsterImgs[k] : enemyImgs[k]).src;
+      if (kind === 'm') {   // 味方: 2つの属性(同じ属性2つは1つだけ)
+        const at = add('div', 'zk-name', null, cell);
+        at.innerHTML = (k[0] === k[1] ? [k[0]] : [k[0], k[1]]).map(c => attrChip(ATTR[c])).join(' ');
+      } else {
+        const boss = !ZAKO[k], p = stats(k);
+        const en = boss ? (BOSS_NAME[k] || [k])[0] : p.en, kana = boss ? (BOSS_NAME[k] || [])[1] : p.ja;
+        add('div', 'zk-name' + (boss ? ' boss' : ''), lang === 'ja' && kana ? kana : en, cell);
+      }
+    }
+  };
+  grid(T('zAllies'), Object.keys(MONSTERS).filter(k => zukan.m[k]), 'm', Object.keys(MONSTERS).length);
+  const eKeys = Object.keys(ZAKO).concat([...STAGE_ORDER].map(c => c + c).filter(k => ENEMY_KEYS.includes(k)));
+  grid(T('zEnemies'), eKeys.filter(k => zukan.e[k]), 'e', eKeys.length);
+}
 function renderMenu() {
   if (!menuEl || !menuEl.querySelector) return;
-  menuEl.querySelector('.title').textContent = T(menuMode === 'help' ? 'howto' : menuMode === 'settings' ? 'settings' : menuMode === 'submit' ? 'regTitle' : menuMode === 'ranking' ? 'ranking' : 'menu');
+  menuEl.querySelector('.title').textContent = T(menuMode === 'zukan' ? 'zukan' : menuMode === 'help' ? 'howto' : menuMode === 'settings' ? 'settings' : menuMode === 'submit' ? 'regTitle' : menuMode === 'ranking' ? 'ranking' : menuMode === 'confirm' ? 'confirm' : 'menu');
   const help = menuEl.querySelector('.help');
   help.innerHTML = '';
   if (menuMode === 'submit' || menuMode === 'ranking') renderRankArea(help);
+  if (menuMode === 'confirm' && confirmState) { const m = document.createElement('div'); m.className = 'confirm'; m.textContent = confirmState.msg; help.appendChild(m); }
+  help.classList.toggle('doc', menuMode === 'help' || menuMode === 'zukan');   // あそびかた・ずかんは、読みやすい普通の書体で
+  if (menuMode === 'zukan') renderZukan(help);
   if (menuMode === 'help') {
     const { keys, notes } = helpLines();
-    for (const [k, v] of keys) { const r = document.createElement('div'); r.className = 'row'; r.innerHTML = '<span class="k"></span><span class="v"></span>'; r.children[0].textContent = k; r.children[1].textContent = v; help.appendChild(r); }
-    for (const n of notes) { const r = document.createElement('div'); r.className = 'note'; r.textContent = n; help.appendChild(r); }
+    const add = (cls, text) => { const r = document.createElement('div'); r.className = cls; r.textContent = text; help.appendChild(r); return r; };
+    const rows = list => { for (const [k, v] of list) { const r = document.createElement('div'); r.className = 'row'; r.innerHTML = '<span class="k"></span><span class="v"></span>'; r.children[0].textContent = k; r.children[1].textContent = v; help.appendChild(r); } };
+    add('h', T('hRules')); for (const n of notes) add('note', n);
+    add('h', T('hControls')); rows(keys);
+    add('h', T('hScore')); rows(HELP.score[LI()]);
   }
   renderList(menuEl.querySelector('.list'), menuItems(), menuSel, i => { menuSel = i; });
 }
 function openMenu(mode) {
   if (menuOpen || !menuEl || !menuEl.classList) return;
   menuMode = mode || (titleScreen ? 'settings' : 'game');
+  helpFromGame = null;
   menuOpen = true; menuPaused = paused;
-  menuSel = menuMode === 'submit' ? 0 : menuItems().length - 1;   // 最初は、いちばん下の「とじる(つづける)」を選んでおく(うっかりリスタートしないように)。登録は「登録する」
+  menuSel = menuMode === 'submit' ? 0 : menuMode === 'confirm' ? 1 : menuItems().length - 1;   // 最初は、いちばん下の「とじる(つづける)」を選んでおく(うっかりリスタートしないように)。登録は「登録する」
   if (!titleScreen) { paused = true; stopHolds(); }
   menuEl.classList.add('open'); renderMenu();
 }
 function closeMenu() {
+  closeCard();
   if (!menuOpen) return;
   menuOpen = false;
   if (!titleScreen) paused = menuPaused;
@@ -2785,7 +2986,7 @@ function listKey(dir) {
     if (dir) { titleSel = (titleSel + dir + list.length) % list.length; renderTitle(); } else list[titleSel][1]();
   }
 }
-if (menuEl && menuEl.addEventListener) menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) { e.preventDefault(); closeMenu(); } });   // 外側をタップで閉じる
+if (menuEl && menuEl.addEventListener) menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) { e.preventDefault(); menuBack(); } });   // 外側をタップで閉じる
 function restartGame() { clearSave(); reset(); restartBgm(); }
 function toggleBgm() { bgmMuted = !bgmMuted; updateBgm(); if (bgmMuted) stopGameOver(); }
 // 押しっぱなしで連続: 最初の待ち DAS のあと、REPEAT の間隔でくり返す(OS のキーリピートは使わない)
@@ -2805,6 +3006,7 @@ const KEY_MAP = {
   ArrowLeft: 'left', Numpad4: 'left', ArrowRight: 'right', Numpad6: 'right',
   KeyZ: 'rotL', Numpad1: 'rotL', Numpad5: 'rotL', KeyX: 'rotR', ArrowUp: 'rotR', Numpad3: 'rotR',
   ArrowDown: 'soft', Numpad2: 'soft', Space: 'hard', Numpad0: 'hard',
+  ShiftLeft: 'swap', ShiftRight: 'swap', KeyA: 'swap', Numpad7: 'swap', Numpad8: 'swap', Numpad9: 'swap',   // NEXT と入れかえ
 };
 addEventListener('keydown', e => {
   const k = e.code, a = KEY_MAP[k];
@@ -2815,13 +3017,14 @@ addEventListener('keydown', e => {
   if (a || k === 'Space') e.preventDefault();
   startBgm();
   if (k === 'KeyM') { if (!e.repeat) toggleBgm(); return; }
-  if (k === 'Escape') { if (!e.repeat) { if (menuOpen) closeMenu(); else openMenu(); } return; }   // タイトルでは「せってい」が開く
+  if (k === 'Escape') { if (!e.repeat) { if (menuOpen) menuBack(); else openMenu(); } return; }   // タイトルでは「せってい」が開く
   if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選んで、Enter / Space / Z / X で決定
-    if (k === 'ArrowUp' || k === 'ArrowDown') listKey(k === 'ArrowUp' ? -1 : 1);
+    if (!menuOpen && k.startsWith('Arrow')) titleMove(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0);   // タイトルは2列
+    else if (k === 'ArrowUp' || k === 'ArrowDown') listKey(k === 'ArrowUp' ? -1 : 1);
     else if (!e.repeat && ['Enter', 'NumpadEnter', 'Space', 'KeyZ', 'KeyX'].includes(k)) listKey(0);
     return;
   }
-  if (k === 'KeyR') { if (!e.repeat) restartGame(); return; }
+  if (k === 'KeyR') { if (!e.repeat) { if (over) restartGame(); else { openMenu(); askRestart(); } } return; }   // 遊んでいる途中は確認する
   if (k === 'KeyC' || k === 'NumpadAdd') { if (!e.repeat) usePotion(); return; }   // くすりの瓶(C / テンキーの +)
   if (k === 'KeyV' || k === 'NumpadEnter') { if (!e.repeat) fireMoon(); return; }   // 月光波(V / テンキーの Enter)
   if (k === 'KeyP') { if (!e.repeat) togglePause(); return; }
@@ -2855,6 +3058,8 @@ for (const btn of document.querySelectorAll ? document.querySelectorAll('#pad bu
   btn.addEventListener('contextmenu', e => e.preventDefault());
 }
 
+// NEXT の枠をタップ(PC はクリック)すると入れかえ。フリック操作のときは上へはじく
+if (nv.addEventListener) nv.addEventListener('pointerdown', e => { if (touchMode && gMode === 'flick') return; e.preventDefault(); startBgm(); act('swap'); });
 // フリック: 左右にドラッグ=移動(1マスぶん動かすごとに1マス) / 画面の左側・右側をタップ=左回転・右回転 /
 // 画面の下2割をタップ=1マス下げる(長押しで連続) / 下へはじく=ハードドロップ
 let g = null;
@@ -2901,7 +3106,7 @@ document.addEventListener('touchend', e => {
   const dx = t.clientX - g.x0, dy = t.clientY - g.y0;
   gHoldStop();
   if (g.holding || over) { /* 長押しのあと・ゲームオーバー後は何もしない */ }
-  else if (g.axis === 'v') { if (dy > 0 && dt < 350 && dy > 60) act('hard'); }   // 下へ速くはじいたときだけ
+  else if (g.axis === 'v') { if (dy > 0 && dt < 350 && dy > 60) act('hard'); else if (dy < 0 && dt < 350 && dy < -60) act('swap'); }   // 下へ速くはじく=すぐ落とす / 上へ=NEXT と入れかえ
   else if (!g.axis && dt < HOLD_MS && Math.hypot(dx, dy) < 12) {
     if (g.y0 > vh() * 0.8) act('soft');
     else act(g.x0 < vw() / 2 ? 'rotL' : 'rotR');
@@ -2911,8 +3116,8 @@ document.addEventListener('touchend', e => {
 document.addEventListener('touchcancel', () => { gHoldStop(); g = null; });
 
 // ---- ジョイパッド(標準の配置): 十字キー・スティック=移動 / 下=1マス下げる / 上・RT=ハードドロップ /
-// A=右回転 / B・X=左回転 / Y・LB=くすり / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
-const PAD_MAP = { 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm', 3: 'potion', 4: 'potion', 5: 'moon' };
+// A=右回転 / B・X=左回転 / LT=NEXT と入れかえ / Y・LB=くすり / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
+const PAD_MAP = { 6: 'swap', 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm', 3: 'potion', 4: 'potion', 5: 'moon' };
 const padPrev = {}, padNext = {};
 function pollPad(t) {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -2921,7 +3126,7 @@ function pollPad(t) {
   if (!p) return;
   const B = i => !!(p.buttons[i] && p.buttons[i].pressed);
   const ax = p.axes[0] || 0, ay = p.axes[1] || 0;
-  const st = { left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false, potion: false, moon: false };
+  const st = { swap: false, left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false, potion: false, moon: false };
   for (const i in PAD_MAP) if (B(+i)) st[PAD_MAP[i]] = true;
   const any = p.buttons.some(b => b && b.pressed);
   for (const k in st) {
@@ -2935,9 +3140,10 @@ function pollPad(t) {
     startBgm();
     if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選ぶ / A で決定 / B・START でメニューを閉じる(タイトルでは START で始まる)
       if (was) continue;
-      if (k === 'hard' || k === 'soft') listKey(k === 'hard' ? -1 : 1);
+      if (!menuOpen && (k === 'hard' || k === 'soft' || k === 'left' || k === 'right')) titleMove(k === 'left' ? -1 : k === 'right' ? 1 : 0, k === 'hard' ? -1 : k === 'soft' ? 1 : 0);
+      else if (k === 'hard' || k === 'soft') listKey(k === 'hard' ? -1 : 1);
       else if (k === 'rotR') listKey(0);
-      else if (menuOpen && (k === 'rotL' || k === 'pause')) closeMenu();
+      else if (menuOpen && (k === 'rotL' || k === 'pause')) menuBack();
       else if (!menuOpen && k === 'pause') startGame();
       else if (k === 'bgm') { toggleBgm(); if (menuOpen) renderMenu(); }
       continue;
