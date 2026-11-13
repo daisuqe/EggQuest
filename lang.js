@@ -64,6 +64,7 @@ const STR = {
   on:         ['オン', 'ON', '开', '켬'],
   off:        ['オフ', 'OFF', '关', '끔'],
   controls:   ['そうさ: ', 'CONTROLS: ', '操作: ', '조작: '],
+  autoPot:    ['自動くすり: ', 'AUTO POTION: ', '自动药水: ', '자동 물약: '],
   flick:      ['フリック', 'FLICK', '滑动', '플릭'],
   buttons:    ['ボタン', 'BUTTONS', '按钮', '버튼'],
   language:   ['Language: ', 'Language: ', 'Language: ', 'Language: '],   // どの言語でも英語(読めない言語になっても、戻し方がわかるように)

@@ -1905,6 +1905,10 @@ function usePotion() {
     sfx('heal');
   });
 }
+// 自動くすり(設定。はじめはオン): 体力が赤(25%以下)になったら、くすりがあれば自動で使う
+let autoPotion = (() => { try { return localStorage.getItem('eq_autopot') !== '0'; } catch (e) { return true; } })();
+function toggleAutoPotion() { autoPotion = !autoPotion; try { localStorage.setItem('eq_autopot', autoPotion ? '1' : '0'); } catch (e) {} }
+function autoPotionCheck() { if (autoPotion && heroDanger() && !itemsBlocked() && potionNeed() > 0) usePotion(); }
 function fireMoon() {
   if (itemsBlocked() || moonWave) return;
   if (moon < 1) { itemFx.moonNo = 300; return; }   // 空っぽ
@@ -2894,7 +2898,8 @@ function togglePause() { if (menuOpen) return; if (!over && !titleScreen) { paus
 let menuOpen = false, menuSel = 0, menuPaused = false, menuMode = 'game';   // game: ゲーム中 / settings: タイトルの設定 / help: あそびかた
 const menuEl = document.getElementById('menu');
 function settingItems() {
-  const list = [[T('bgm') + T(bgmMuted ? 'off' : 'on'), () => { toggleBgm(); renderMenu(); }]];
+  const list = [[T('bgm') + T(bgmMuted ? 'off' : 'on'), () => { toggleBgm(); renderMenu(); }],
+                [T('autoPot') + T(autoPotion ? 'on' : 'off'), () => { toggleAutoPotion(); renderMenu(); }]];
   if (touchMode) list.push([T('controls') + T(gMode === 'flick' ? 'flick' : 'buttons'), () => {
     gMode = gMode === 'flick' ? 'buttons' : 'flick'; store.set('eq_mode', gMode); applyMode(); fitAll(); renderMenu(); }]);
   list.push([T('language') + LANG_NAME[lang], () => setLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length])]);   // 押すたびに次の言語へ
@@ -3280,7 +3285,7 @@ function loop(t) {
   if (!paused && !over && !clearing) updateWobble(dt);
   if (!paused && (!over || overReason === 'ending')) { if (!stageClear && !over) updateHatch(dt); updateMonsters(dt); updateEnemies(dt); updateBattle(dt); updateMoonWave(dt); }
   else if (!paused && over && overReason === 'enemy') { for (const u of monsters.concat(enemies)) u.t += dt; }   // 撤退中: もぞもぞ動かすために時間だけ進める
-  if (!paused) { updateStage(dt); updateItemFx(dt); updateCast(dt); dangerSound(dt); }
+  if (!paused) { updateStage(dt); updateItemFx(dt); updateCast(dt); dangerSound(dt); autoPotionCheck(); }
   updateBossCard();
   watchBgm();
   for (const f of flash) f.t += dt;
