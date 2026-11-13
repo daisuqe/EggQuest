@@ -77,7 +77,9 @@ function spawn() {
   if (check(cur.cells, cur.x, cur.y) === null) over = true;
 }
 
+let playMs = 0;
 function reset() {
+  playMs = 0; rank.sent = false; rank.offered = false;
   board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   queue = []; score = 0; lines = 0; level = 1;
   over = false; paused = false; stopHolds();
@@ -250,6 +252,7 @@ function finishClear() {
   cv.style.transform = '';
   updateHud();
   spawn();
+  if (saveSoon) saveGame();
 }
 const BURST = 0.3;          // 光ってから、粒になって弾けるまでの割合
 const CLEAR_MS = 2000;      // ラインが消え終わるまで
@@ -325,7 +328,7 @@ function drawClearFx() {
     ctx.globalAlpha = a; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.translate(x, y); ctx.scale(pop, pop);
     ctx.font = pixFont(16);
-    const info = 'ライン×' + c.rows.length + (c.eggs ? '　タマゴ×' + c.eggs : '');
+    const info = T('linesX') + c.rows.length + (c.eggs ? T('gap') + T('eggsX') + c.eggs : '');
     ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(info, 0, -30);
     ctx.fillStyle = '#ffffff'; ctx.fillText(info, 0, -30);
     ctx.font = pixFont(48);
@@ -363,6 +366,8 @@ const SFX = {
   land:   [[131, 73, .22, .20], [262, 147, .10, .04]],
   merge:  [[660, 1320, .12, .08], [990, 1980, .16, .07, .09]],
   heal:   [[523, 784, .14, .08], [659, 1047, .18, .07, .09], [784, 1319, .26, .06, .18]],   // くすりで回復
+  healCharge: [[392, 784, .42, .05], [494, 988, .42, .035, .06]],                       // くすりの「ため」(音が上がっていく)
+  moonCharge: [[196, 784, .62, .06], [294, 1175, .62, .04, .08], [147, 147, .6, .05]],  // 月光波の「ため」
   full:   [[1319, 1319, .07, .06], [1760, 1760, .22, .06, .08]],                         // 三日月が満タンになった
   moon:   [[1568, 523, .55, .09], [2093, 784, .6, .06, .06], [196, 98, .45, .16]],        // 月光波   // 同じモンスターに体力が加わったとき(ピローん)
   clear: n => {
@@ -380,6 +385,9 @@ function sfxWaveFor(ctx) {
   sfxWave = { ctx, w: ctx.createPeriodicWave(re, im) };
   return sfxWave.w;
 }
+// 鳴り終わった音のつながりを外す。Safari(iPhone)は、止まった音でもつながったままだと消さずに持ち続けるため、
+// 長く遊ぶと音の処理がどんどん重くなり、BGM が遅くなる
+function freeNodes(...nodes) { for (const n of nodes) { try { n.disconnect(); } catch (e) {} } }
 function sfx(name, arg) {
   const ctx = ensureCtx(); if (!ctx || ctx.state !== 'running') return;
   if (!sfxOut) {
@@ -398,11 +406,12 @@ function sfx(name, arg) {
     g.gain.linearRampToValueAtTime(vol, t + .012);
     g.gain.setTargetAtTime(0, t + .012 + dur * .25, dur * .3);
     o.connect(g); g.connect(sfxOut);
+    o.onended = () => freeNodes(o, g);   // 鳴り終わったら外す(つないだままだと iPhone で音のつながりがたまって重くなる)
     o.start(t); o.stop(t + dur * 2.2 + .06);
   }
 }
 
-// ---- BGM: music/bgm_score.js の楽譜(MIDI から作ったもの)を、やわらかいチップ音のオーケストラで鳴らす ----
+// ---- BGM: music/bgm_score_<名前>.js の楽譜(MIDI から作ったもの)を、やわらかいチップ音のオーケストラで鳴らす ----
 // 最初にキーかボタンを押したときに鳴りはじめる(ブラウザは操作の前に音を出せない)。
 // 楽譜が読めないときは、MP3(BGM_MP3)をループで鳴らす
 const BGM_MP3 = 'music/Luneria-adventure-orchestra.mp3';
@@ -450,7 +459,8 @@ function bgmNote(ctx, out, name, t, dur, note, vel, list) {
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = snare ? 1800 : 900; lp.Q.value = 0.3;
     env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(amp, t + 0.006);
     env.gain.setTargetAtTime(0, t + 0.01, len / 2);
-    o.connect(lp); lp.connect(env); o.start(t); o.stop(t + len * 4 + 0.1); list.push(o);
+    o.connect(lp); lp.connect(env); o.onended = () => freeNodes(o, lp, env);
+    o.start(t); o.stop(t + len * 4 + 0.1); list.push(o);
     return;
   }
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = v.lp; lp.Q.value = 0.3;
@@ -460,15 +470,19 @@ function bgmNote(ctx, out, name, t, dur, note, vel, list) {
   env.gain.linearRampToValueAtTime(amp, t + v.a);
   env.gain.setTargetAtTime(amp * v.sus, t + v.a, 0.12);
   env.gain.setTargetAtTime(0, end, v.r / 3);
-  for (const c of (v.det ? [-v.det, v.det] : [0])) {
+  const parts = [lp, env], oscs = v.det ? [-v.det, v.det] : [0];
+  let left = oscs.length;   // 音源がみんな鳴り終わったら、まとめて外す
+  const done = () => { if (--left <= 0) freeNodes(...parts); };
+  for (const c of oscs) {
     const o = ctx.createOscillator();
     o.setPeriodicWave(bgmWave(ctx, v.wave));
     o.frequency.value = f; o.detune.value = c;
     if (v.vib && dur > 0.3) {                                    // 長い音にだけ、少し遅れてビブラート
       const lfo = ctx.createOscillator(), lg = ctx.createGain();
       lfo.frequency.value = 5.2; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(v.vib * 100, t + 0.35);
-      lfo.connect(lg); lg.connect(o.detune); lfo.start(t); lfo.stop(end + v.r + 0.1); list.push(lfo);
+      lfo.connect(lg); lg.connect(o.detune); lfo.onended = () => freeNodes(lfo, lg); lfo.start(t); lfo.stop(end + v.r + 0.1); list.push(lfo);
     }
+    parts.push(o); o.onended = done;
     o.connect(lp); o.start(t); o.stop(end + v.r + 0.1); list.push(o);
   }
 }
@@ -580,12 +594,14 @@ function updateBgm() {            // 鳴らす/小さくする(状態が変わ�
     if (v > 0 && bgm.el.paused) bgm.el.play().catch(() => {});
   }
 }
-let bgmLastWanted = null, lastGameOver = false;
+let bgmLastWanted = null, lastGameOver = false, overSaveCleared = false;
 function watchBgm() {             // 毎フレーム: ポーズ・ゲームオーバーの切り替わりで音量を変える
   const w = bgmWanted();
   if (w !== bgmLastWanted) { bgmLastWanted = w; updateBgm(); }
   const go = isGameOver();
   if (go !== lastGameOver) { lastGameOver = go; if (go) playGameOver(); else stopGameOver(); }
+  if (over && !titleScreen && !overSaveCleared) { overSaveCleared = true; clearSave(); offerSubmit(); }   // ゲームオーバー・エンディングで途中データを消す。ランキング登録をすすめる
+  if (!over) overSaveCleared = false;
 }
 // ---- ゲームオーバーの曲(music/bgm_gameover.js の window.GAME_OVER_SCORE)。ステージの曲が消えてから1回だけ鳴らす ----
 const GAME_OVER_DELAY = 0.6;      // ゲームオーバーになってから鳴りはじめるまで(秒)
@@ -625,14 +641,28 @@ function resetLock() {
   }
 }
 
+// S・Z・I は、180度回したときに位置がずれないようにする(標準の回転だと、1段・1列ずれる)。
+// 横向き(0・2)はいつも最初の横向きと同じ場所、縦向き(1・3)はいつも最初に右へ回した縦向きと同じ場所に置く。卵の位置は回る
+const TWO_WAY = 'SZI';
+const TWO_WAY_KICKS = [[1, 0], [-1, 0], [2, 0], [-2, 0], [0, -1], [1, -1], [-1, -1]];   // 追加のキック([横, 縦]。縦は上がマイナス)
+function rotCW(cells, n) { return cells.map(([x, y, h]) => [n - 1 - y, x, h]); }
+function snapTwoWay(name, n, cells, r) {
+  if (!TWO_WAY.includes(name)) return cells;
+  const base = r % 2 ? rotCW(SHAPES[name].cells, n) : SHAPES[name].cells;
+  const minX = cs => Math.min(...cs.map(c => c[0])), minY = cs => Math.min(...cs.map(c => c[1]));
+  const dx = minX(base) - minX(cells), dy = minY(base) - minY(cells);
+  return cells.map(([x, y, h]) => [x + dx, y + dy, h]);
+}
 function rotate(dir) {
   const n = cur.n;
-  const cells = cur.cells.map(([x, y, h]) =>
-    dir > 0 ? [n - 1 - y, x, h] : [y, n - 1 - x, h]);
   const nr = (cur.r + dir + 4) % 4;
+  const cells = snapTwoWay(cur.name, n, cur.cells.map(([x, y, h]) =>
+    dir > 0 ? [n - 1 - y, x, h] : [y, n - 1 - x, h]), nr);
   const table = cur.name === 'I' ? KICK_I : KICK_JLSTZ;
   // O は位置を動かさず穴の位置だけ回す
-  const kicks = cur.name === 'O' ? [[0, 0]] : table[cur.r + '>' + nr];
+  let kicks = cur.name === 'O' ? [[0, 0]] : table[cur.r + '>' + nr];
+  // S・Z・I は位置をそろえている(snapTwoWay)ので、標準のキックだけだと壁ぎわで回れないことがある。左右に1〜2マスずらす候補も足す
+  if (TWO_WAY.includes(cur.name)) kicks = kicks.concat(TWO_WAY_KICKS).filter((v, i, a) => a.findIndex(w => w[0] === v[0] && w[1] === v[1]) === i);
   for (const [kx, ky] of kicks) {
     const res = check(cells, cur.x + kx, cur.y + ky);
     if (res !== 0) continue; // 回転では穴同士の重なりは不可(そのキックは無効)
@@ -690,17 +720,21 @@ function softStep() {
   sfx('soft');
 }
 
+const SCORE_PX = [80, 64, 48, 32];   // スコアの文字の大きさ(大きい順に試す)
 function updateHud() {
   const sc = document.getElementById('score');
   sc.textContent = score;
-  const digits = String(score).length;   // けたが多いときは、欄に収まるように小さく(ドットがくっきり出る大きさで)
-  if (sc.style) sc.style.fontSize = digits <= 5 ? '' : digits === 6 ? '48px' : '32px';
+  // スコアは大きめ(80px。前の64pxの約1.2倍)。欄に入らなくなったら、入る大きさまで小さくする(ドットがくっきり出る大きさで)
+  if (sc.style && sc.parentElement) {
+    const room = sc.parentElement.clientWidth || 200;
+    for (const px of SCORE_PX) { sc.style.fontSize = px + 'px'; if (!sc.offsetWidth || sc.offsetWidth <= room) break; }
+  }
   document.getElementById('stage').textContent = stage;
 }
 
 // ---- 描画 ----
 // 文字はドットフォント: 英字・数字・記号は Yodaka、日本語は美咲ゴシック。16px の倍数にそろえるとどちらもくっきり出る
-function pixFont(px) { return Math.max(16, Math.round(px / 16) * 16) + "px Yodaka, Misaki, sans-serif"; }
+function pixFont(px) { return Math.max(16, Math.round(px / 16) * 16) + "px " + fontStack(); }
 // 英字は全角にする(A→Ａ、!→!、空白→全角空白)。数字と記号 + - / はそのまま
 function zen(str) { return String(str).replace(/[A-Za-z!?]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).replace(/ /g, '　'); }
 function shade(hex, amt) {
@@ -1028,7 +1062,15 @@ function pushBackEnemies(w) {
 }
 function updateMonsters(dt) {
   if (stageClear) {                // ステージクリア: 扉を通って右へはける
-    if (exiting()) for (const m of monsters) { m.x += EXIT_SPEED * dt / 1000; m.t += dt; }
+    // 先頭(右にいるもの)から順に、一列で右へはける。前のモンスターと重ならないように、すき間が空くまで待つ
+    if (exiting()) {
+      let limit = Infinity;   // この位置より右へは行かない(前のモンスターの左の端 - すき間)
+      for (const m of monsters.slice().sort((a, b) => b.x - a.x)) {
+        const w = monWidth(m), to = Math.min(m.x + EXIT_SPEED * dt / 1000, limit - w);
+        if (to > m.x) { m.x = to; m.t += dt; }   // 進めるときだけ進む(後ろへは戻さない)
+        limit = Math.min(limit, m.x) - EXIT_GAP;
+      }
+    }
     monsters = monsters.filter(m => m.x < FIELD_W + 4);
     return;
   }
@@ -1080,7 +1122,14 @@ function monBox(m) {
   const img = monsterImgs[m.key], sc = monScale(m), fl = MONSTERS[m.key].float * MON_SIZE;
   const w = (img.naturalWidth || 100) * sc, h = (img.naturalHeight || 100) * sc;
   const sway = fl ? Math.sin(m.t / 400) * 3 : exitHop(m.t); // 浮遊するものだけ、ゆっくり上下にゆれる(地上は、はけるときだけトコトコ跳ねる)
-  return { x: m.x + lungeOffset(m), y: FEET_Y - h - fl - sway, w, h, fl };
+  const [fx, fy] = fidget(m);
+  return { x: m.x + lungeOffset(m) + fx, y: FEET_Y - h - fl - sway - fy, w, h, fl };
+}
+// ゲームオーバー(撤退)のあいだ、モンスター・敵はその場でもぞもぞ動き続ける(左右に少しゆれて、小さく跳ねる)
+function fidget(u) {
+  if (!(over && overReason === 'enemy') || u.dead) return [0, 0];
+  const ph = (u.x * 0.37) % 6.28;
+  return [Math.sin(u.t / 230 + ph) * 1.2, Math.abs(Math.sin(u.t / 170 + ph * 1.7)) * 1.5];
 }
 function drawMonsters(g) {
   g.imageSmoothingEnabled = false;   // ドット絵は補間せず、ぼかさずに拡大・縮小する
@@ -1099,10 +1148,10 @@ function drawMonsters(g) {
 }
 
 // ---- 敵: 1ステージは ザコ10体 → ボス1体 ----
-// ザコ: image/enemy/enemy_<名前>.png(左向き)。属性なし。強さで3段階(tier)に分け、ステージが進むほど強いものが多く出る。
+// ザコ: image/enemy2/enemy2_<名前>.png(左向き)。属性なし。強さで3段階(tier)に分け、ステージが進むほど強いものが多く出る。
 // ボス: image/boss2/BOSS2_<キー>.png(左向き)。ステータスは同じキーのモンスター(MONSTERS)を巨大にしたもの
 const ENEMY_KEYS = ['ZZ', 'JJ', 'SS', 'OO', 'II', 'LL', 'TT'];   // ボスになるキー
-const ENEMY_H = Math.round(103 * UNIT_K);   // ボスの高さ(px)
+const ENEMY_H = Math.round(103 * UNIT_K * 1.1 * 0.95);   // ボスの高さ(px)。1割大きくしたものから5%小さく
 const ENEMY_SPEED_RATE = 1 / 8;   // ボスの速さ: こちらのモンスターの速さに対する倍率
 const ENEMY_HP_MUL = 12.5;        // ボスのHPは12.5倍
 const BOSS_MOVE = 1.5;            // ボスの移動の速さの倍率
@@ -1119,7 +1168,7 @@ const BOSS_FLOAT = {};            // ボスの浮く高さ(px)。いまのボス
 const BOSS_SINK = {};             // 絵の下の余白で浮いて見えるボスを、この分だけ下げる(px)。boss2 は足が絵の下の端まであるので不要
 const BOSS_ENTER_SHOW = 0.3;      // ボスは、体のこの割合が開いた扉(手前の扉板)から見えるまでは、
 const BOSS_ENTER_SPEED = 3;       // この倍の速さで出てくる(止まらず、こちらのモンスターを押しのける)
-const DOOR_FRONT_L = 123;         // 開いた扉の手前の扉板の左端(絵の中の横の位置)     // ボスの浮く高さ(px)
+const DOOR_FRONT_L = 123 * 200 / 695;   // 開いた扉の手前の扉板の左端(絵の中の横の位置。元の大きな絵での位置 123 を、いまの絵の大きさに直したもの)
 const ZAKO_PER_STAGE = 5;         // 1ステージのザコの数(2種類が交互に出る)
 const ZAKO_TIERS = [[1, 1], [1, 2], [2, 2], [2, 3], [2, 3], [3, 3], [3, 3]];   // ステージごとの、2種類のザコの強さの段階
 const ZAKO_MIX = [0, 0, 1, 0, 1];                    // 出てくる順(0 = 1種類目、1 = 2種類目)
@@ -1130,8 +1179,8 @@ const ZAKO_ALIVE = 3;             // 同時にいるザコの上限
 const ZAKO_BONUS = 50;            // ザコを倒した得点 x ステージ
 // ザコの表: 名前(英, 日), 強さの段階, 表示の高さ h(px), 体力, 攻撃力, 防御%, 速さ(px/秒), 攻撃間隔(秒), 攻撃方法, 射程, 浮く高さ, 魔法の見た目
 const ZAKO = {
-  slime:    { en: 'Slime', ja: 'スライム', tier: 1, h: 20, hp: 60, atk: 7, def: 0, spd: 7, itv: 1.2, style: 'tackle' },
-  blue:     { en: 'Blue Ooze', ja: 'ブルーウーズ', tier: 1, h: 22, hp: 75, atk: 7, def: 10, spd: 6, itv: 1.3, style: 'tackle' },
+  slime:    { en: 'Slime', ja: 'スライム', tier: 1, h: 20, hp: 60, atk: 7, def: 0, spd: 7, itv: 1.2, style: 'tackle', sink: 1 },
+  blue:     { en: 'Blue Ooze', ja: 'ブルーウーズ', tier: 1, h: 22, hp: 75, atk: 7, def: 10, spd: 6, itv: 1.3, style: 'tackle', sink: 1 },
   bat:      { en: 'Cave Bat', ja: 'ケイブバット', tier: 1, h: 22, hp: 45, atk: 8, def: 0, spd: 14, itv: 0.9, style: 'tackle', float: 22 },
   rockling: { en: 'Rockling', ja: 'ロックリング', tier: 1, h: 33.6, hp: 110, atk: 8, def: 30, spd: 5, itv: 1.5, style: 'tackle' },
   servant:  { en: 'Bone Servant', ja: 'ボーンサーヴァント', tier: 1, h: 30, hp: 70, atk: 10, def: 5, spd: 9, itv: 1.1, style: 'tackle' },
@@ -1152,7 +1201,9 @@ for (const k in ZAKO) { ZAKO[k].zako = true; ZAKO[k].tackle = ZAKO[k].atk; ZAKO[
 function stats(key) { return MONSTERS[key] || ZAKO[key]; }
 const enemyImgs = {};
 for (const k of ENEMY_KEYS) enemyImgs[k] = loadImg('image/boss2/BOSS2_' + k + '.png');
-for (const k in ZAKO) enemyImgs[k] = loadImg('image/enemy/enemy_' + k + '.png');
+// ザコの絵(image/enemy2)。ブルーウーズは水色のスライムの絵、スライムは同じ絵を緑にしたもの
+const ZAKO_IMG = { slime: 'enemy2_slime_green', blue: 'enemy2_slime' };
+for (const k in ZAKO) enemyImgs[k] = loadImg('image/enemy2/' + (ZAKO_IMG[k] || 'enemy2_' + k) + '.png');
 function enemyImage(key) {        // 敵の絵(もとから左向き)。読み込み前は null
   const img = enemyImgs[key];
   return img && img.complete && img.naturalWidth ? img : null;
@@ -1170,8 +1221,10 @@ function enemyBox(e) {
   const fl = Math.max(0, Math.min(want, FEET_Y - h - 2));   // 浮くものも、廊下の高さに収める
   const sway = fl ? Math.sin(e.t / 600) * 2 : 0;
   const jump = e.stomp > 0 ? Math.sin(e.stomp / STOMP_MS * Math.PI) * STOMP_H : 0;   // ドスンの小ジャンプ
-  const sink = (e.boss ? (BOSS_SINK[e.key] || 0) : 0) * UNIT_K;
-  return { x: e.x + lungeOffset(e), y: FEET_Y - h - fl - sway - jump + sink, w, h, fl: fl + jump };
+  // 沈める量: ボスは px、ザコは絵のドット数(sink: 体の下の端が絵の下の端より上にあって、浮いて見えるもの)
+  const img = enemyImgs[e.key], sink = e.boss ? (BOSS_SINK[e.key] || 0) * UNIT_K : (ZAKO[e.key].sink || 0) * h / ((img && img.naturalHeight) || h);
+  const [fx, fy] = fidget(e);
+  return { x: e.x + lungeOffset(e) + fx, y: FEET_Y - h - fl - sway - jump + sink - fy, w, h, fl: fl + jump };
 }
 // ステージの敵の顔ぶれ: ザコ10体(弱い順)→ ボス。進むほど強いザコが増える
 function buildStageQueue() {
@@ -1269,10 +1322,10 @@ const EFX = {
   '火': { src: 'image/effect_fireball.png', fw: 64, n: 6, ms: 90, kind: 'proj', ax: 40, ay: 32 },
   '水': { src: 'image/effect_water.png', fw: 64, n: 6, ms: 90, kind: 'proj', ax: 31, ay: 31 },
   '草': { src: 'image/effect_vines.png', fw: 77, n: 8, ms: 60, kind: 'ground', gy: 74 },
-  '雷': { src: 'image/effect_thunder.png', fw: 64, n: 1, ms: 90, kind: 'proj', ax: 18, ay: 32 },
-  '氷': { src: 'image/effect_ice.png', fw: 64, n: 1, ms: 90, kind: 'proj', ax: 34, ay: 32 },
-  '地': { src: 'image/effect_earth.png', fw: 64, n: 1, ms: 90, kind: 'ground', gy: 61, dur: 450 },
-  '闇': { src: 'image/effect_dark.png', fw: 64, n: 1, ms: 90, kind: 'proj', ax: 40, ay: 32 },
+  '雷': { src: 'image/effect_thunder.png', fw: 64, n: 6, ms: 80, kind: 'proj', ax: 40, ay: 32 },   // 6コマのアニメ(右向き)
+  '氷': { src: 'image/effect_ice.png', fw: 64, n: 6, ms: 80, kind: 'proj', ax: 42, ay: 32 },
+  '地': { src: 'image/effect_rock.png', fw: 64, n: 6, ms: 80, kind: 'proj', ax: 36, ay: 32 },     // 岩のつぶて
+  '闇': { src: 'image/effect_dark.png', fw: 64, n: 6, ms: 80, kind: 'proj', ax: 52, ay: 32 },
 };
 for (const k in EFX) EFX[k].img = loadImg(EFX[k].src);
 let fx = [], popups = [];
@@ -1338,14 +1391,22 @@ function zoneMul(a) {
   if (a.enemy) return cx > FIELD_W * 3 / 4 ? ZONE_ENEMY : 1;
   return cx < FIELD_W / 4 ? ZONE_ALLY : 1;
 }
+const BOSS_FX_K = 1.7;            // ボスの攻撃のエフェクトの大きさ(味方のエフェクトに対する倍率)
 function attack(a, target) {
   const p = stats(a.key), isEnemy = !!a.enemy;
+  const fk = isEnemy && a.boss ? BOSS_FX_K : 1;
   const mul = (isEnemy ? a.atkMul : ALLY_ATK_MUL * (a.atkMul || 1)) * zoneMul(a);
   a.cd = p.itv * 1000 * (isEnemy ? a.itvMul : 1);
   if (p.style === 'tackle') {
     a.lunge = LUNGE_MS;
     fx.push({ kind: 'tackle', t: 0, hitAt: LUNGE_MS / 2, dur: LUNGE_MS / 2, target, power: (p.tackle || p.atk) * mul, mult: 1,
               splash: isEnemy && a.boss ? monsters.filter(m => m !== target && m.started && !m.dead && a.x - (m.x + monWidth(m)) <= (TACKLE_RANGE + 24) * RANGE_K) : [] });
+    if (isEnemy && a.boss) {   // 体当たりのボスも、属性のエフェクトを出す(見た目だけ。ダメージは体当たりのほう)
+      const attr = ATTR[a.key[0]], ef = EFX[attr], sb = unitBox(a), tb = unitBox(target);
+      if (ef.kind === 'ground') fx.push({ kind: 'ground', attr, vis: true, k: fk, t: 0, hitAt: 0, dur: ef.dur || ef.n * ef.ms, flip: true, gx: tb.x + tb.w });
+      else fx.push({ kind: 'proj', attr, vis: true, k: fk, t: 0, hitAt: LUNGE_MS / 2, dur: LUNGE_MS / 2 + 120, flip: true,
+                     x0: sb.x + sb.w * 0.15, y0: sb.y + sb.h * 0.5, x1: tb.x + tb.w / 2, y1: tb.y + tb.h * 0.5 });
+    }
     return;
   }
   const splash = isEnemy && a.boss ? monsters.filter(m => m !== target && m.started && !m.dead && a.x - (m.x + monWidth(m)) <= attackRange(a.key, true)) : [];
@@ -1354,13 +1415,14 @@ function attack(a, target) {
   const x0 = isEnemy ? sb.x + sb.w * 0.15 : sb.x + sb.w * 0.85, y0 = sb.y + sb.h * 0.5;
   const x1 = tb.x + tb.w / 2, y1 = tb.y + tb.h * 0.5;
   if (ef.kind === 'ground') {
-    fx.push({ kind: 'ground', attr, t: 0, hitAt: 250, dur: ef.dur || ef.n * ef.ms, flip: isEnemy, gx: isEnemy ? tb.x + tb.w : tb.x, target, power: p.atk * mul, mult, splash, atkKey: a.key });
+    fx.push({ kind: 'ground', attr, k: fk, t: 0, hitAt: 250, dur: ef.dur || ef.n * ef.ms, flip: isEnemy, gx: isEnemy ? tb.x + tb.w : tb.x, target, power: p.atk * mul, mult, splash, atkKey: a.key });
   } else {
     const dur = Math.max(160, Math.min(420, Math.abs(x1 - x0) * 3));
-    fx.push({ kind: 'proj', attr, t: 0, hitAt: dur, dur, flip: isEnemy, x0, y0, x1, y1, target, power: p.atk * mul, mult, splash, atkKey: a.key });
+    fx.push({ kind: 'proj', attr, k: fk, t: 0, hitAt: dur, dur, flip: isEnemy, x0, y0, x1, y1, target, power: p.atk * mul, mult, splash, atkKey: a.key });
   }
 }
 function applyHit(f) {
+  if (f.vis) return;   // 見た目だけのエフェクト
   for (const o of f.splash || []) {   // 巨大な敵の攻撃: まわりの味方にも
     const mult = f.atkKey ? typeMul(bestAttr(f.atkKey, o.key)[0], o.key) : 1;
     hitUnit(o, f.power * ENEMY_SPLASH, mult);
@@ -1390,7 +1452,7 @@ function hitUnit(t, power, mult) {
   if (t.hp <= 0) {
     t.hp = 0; t.dead = true; t.fade = 500;
     if (t.enemy) {   // 敵を倒した。ボスなら、ルネリアの体力表示はいったん消す
-      if (t.boss) { hero.shown = false; door.unlocked = true; if (door.none) startEnding(); }   // ボスを倒すと、扉を攻撃できるようになる(ラスボスならエンディング)
+      if (t.boss) { hero.shown = false; if (door.none) startEnding(); else openDoor(); }   // ボスを倒したらステージクリア(扉が開く。ラスボスならエンディング)
       const bonus = (t.boss ? ENEMY_BONUS : ZAKO_BONUS) * stage;
       score += bonus; updateHud();
       popups.push({ x: px, y: Math.max(16, b.y + 14), text: '+' + bonus, color: '#ffe27a', t: 0, life: 1600, size: 14 });
@@ -1426,8 +1488,9 @@ function updateBattle(dt) {
   enemies = enemies.filter(e => !(e.dead && e.fade <= 0));
   if (enemies.length < n) enemyTimer = ENEMY_RESPAWN;
 }
-function drawHpBar(g, cx, y, w, r, col) {
-  const H = 4;                      // バーの太さ(px)
+const HP_BAR_WK = 1.5, HP_BAR_H = 8;   // 体力バー: 幅の倍率 / 太さ(px)。前の 1.5倍の幅・2倍の太さ
+function drawHpBar(g, cx, y, w, r, col, H = HP_BAR_H, wk = HP_BAR_WK) {
+  w *= wk;
   const x = Math.round(cx - w / 2), yy = Math.max(1, Math.round(y) - H / 2);   // 太くしたぶん上へ(下の端の位置はそのまま)
   g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(x - 1, yy - 1, w + 2, H + 2);
   g.fillStyle = col; g.fillRect(x, yy, Math.max(0, Math.round(w * r)), H);
@@ -1438,7 +1501,7 @@ function drawFx(g) {
     if (f.kind === 'tackle') continue;
     const ef = EFX[f.attr], img = ef.img;
     if (!img.complete || !img.naturalWidth) continue;
-    const fr = Math.floor(f.t / ef.ms) % ef.n, s = EFFECT_SCALE;
+    const fr = Math.floor(f.t / ef.ms) % ef.n, s = EFFECT_SCALE * (f.k || 1);   // ボスの攻撃は大きく
     const fh = img.naturalHeight, dw = ef.fw * s, dh = fh * s;
     let ax, ay;   // コマの基準点を置く画面の位置
     if (f.kind === 'proj') {
@@ -1483,7 +1546,7 @@ const STAGE_STEP = 0.3;           // ステージ2からは、さらに +30%(1�
 const ZAKO_ALIVE_UP = 1;          // ステージ2からは、同時に出るザコを1体増やす
 const ENEMY_BONUS = 500;          // 敵(ボス)を倒した得点 x ステージ
 const STAGE_BONUS = 3000;         // ステージクリアの得点 x ステージ
-const CLEAR_SHOW_MS = 2600;       // 扉が開いてから、QUEST CLEAR を見せる時間
+const CLEAR_SHOW_MS = 2600;       // 扉が開いてから、STAGE CLEAR を見せる時間
 function stageMul() { return 1 + STAGE_UP * (stage - 1) + (stage >= 2 ? STAGE_STEP : 0); }
 const DOOR_DEF = 20;              // 扉の防御(%)
 const DOOR_OPEN_MS = 1000;        // 扉が開ききるまで
@@ -1502,6 +1565,37 @@ function startEnding() {          // ラスボスを倒した: 戦場を一掃�
   for (const u of enemies) if (!u.dead) { u.dead = true; u.fade = 700; }
   sfx('clear', 4);
 }
+// ゲーム中のページの背景: ステージの色を暗くした色の、階段のグラデーション(上を暗く、下を明るく)
+const PAGE_BG_COLOR = { S: '#69c63c', L: '#d47a32', I: '#3a8bcc' };   // 背景だけ属性の色から変えるステージ(森は黄緑より、地は少し茶色より、氷は背景の絵に合わせた青)
+const PAGE_BG_DIM = { L: 0.8, O: 0.55, T: 0.55 };   // ステージごとの明るさの倍率(地・雷・闇は暗めに)
+const MENU_BTN_BG = 0.7;   // MENU ボタンの色にまぜる、後ろの背景の色の割合
+const PAGE_BG_TOP = 0.45, PAGE_BG_BOTTOM = 1.15;   // ステージの色の明るさ(上 / 下。1 = そのまま、1より大きいと白をまぜて明るく)
+function applyPageBg() {
+  const ch = stageAttr(), hex = PAGE_BG_COLOR[ch] || ATTR_COLOR[ATTR[ch]] || '#14161c', v = parseInt(hex.slice(1), 16);
+  const ch8 = (c, k) => Math.round(k <= 1 ? c * k : c + (255 - c) * (k - 1));   // 1より大きいときは白に近づける
+  const dim = PAGE_BG_DIM[ch] || 1;
+  const rgb = k => { k *= dim; return `rgb(${ch8(v >> 16, k)},${ch8((v >> 8) & 255, k)},${ch8(v & 255, k)})`; };
+  if (document.body && document.body.style) {
+    document.body.style.backgroundColor = rgb(PAGE_BG_BOTTOM);
+    // 階段のグラデーション: 上の4割と下の2割はべた塗り、その間(4割)を4段に分ける
+    const stops = [`${rgb(PAGE_BG_TOP)} 0%`, `${rgb(PAGE_BG_TOP)} 40%`];
+    for (let i = 1; i <= 4; i++) {
+      const c = rgb(PAGE_BG_TOP + (PAGE_BG_BOTTOM - PAGE_BG_TOP) * i / 5), y0 = 40 + (i - 1) * 10, y1 = 40 + i * 10;
+      stops.push(`${c} ${y0}%`, `${c} ${y1}%`);
+    }
+    stops.push(`${rgb(PAGE_BG_BOTTOM)} 80%`, `${rgb(PAGE_BG_BOTTOM)} 100%`);
+    document.body.style.backgroundImage = `linear-gradient(to bottom, ${stops.join(', ')})`;
+    document.body.style.backgroundAttachment = 'fixed';
+  }
+  // MENU ボタン(PC・右上)は目立ちすぎないように、色に後ろの背景(いちばん上の色)を7割まぜる
+  const top = [v >> 16, (v >> 8) & 255, v & 255].map(c => ch8(c, PAGE_BG_TOP * dim));
+  const mix = hx => { const u = parseInt(hx.slice(1), 16), c = [u >> 16, (u >> 8) & 255, u & 255];
+    return `rgb(${c.map((x, i) => Math.round(x * (1 - MENU_BTN_BG) + top[i] * MENU_BTN_BG)).join(',')})`; };
+  const root = document.documentElement;
+  if (root && root.style) {
+    root.style.setProperty('--menuFg', mix('#e9ecf1')); root.style.setProperty('--menuBg', mix('#0a0c11')); root.style.setProperty('--menuEdge', mix('#ffffff'));
+  }
+}
 function resetStage() {
   const ch = stageAttr();            // ステージの属性(背景・扉・ボス)は決まった順
   const hp = Math.round(DOOR_HP * (1 + 0.2 * (stage - 1)));
@@ -1509,6 +1603,7 @@ function resetStage() {
   hero = { hero: true, hp: HERO_HP, maxHp: HERO_HP, shown: false, hurt: 0 };
   summonT = 0; heroLose = 0; heroBack = 0; stageClear = false;
   buildStageQueue(); enemyTimer = ENEMY_RESPAWN; stageClearT = 0; stageIntroT = 2000;
+  applyPageBg();
 }
 function doorBox() { return { x: DOOR_X, y: FEET_Y - DOOR_H, w: DOOR_W, h: DOOR_H }; }
 function openDoor() {               // 扉が開いた: ステージクリア。ボーナスを入れて、戦場を一掃する
@@ -1533,14 +1628,113 @@ function nextStage() {             // 次のステージへ: 戦場(モンスタ
   if (!cur && !clearing) spawn();
   updateHud();
   switchBgm();
+  saveGame();                       // 新しいステージの始まりで、途中データを保存(アプリが消えても、ここから再開できる)
+}
+
+// ---- ランキング(Cloudflare Workers + D1。サーバーは _work/server) ----
+// スコア順。最後に行けたステージも記録する。終わったら(ゲームオーバー・エンディング)名前を入れて登録できる
+const SCORE_API = ((new URLSearchParams(location.search).get('api')) || 'https://egg-quest-scores.haradadaisuke.workers.dev').replace(/\/+$/, '');   // ?api= は動作確認用。空にするとランキングを出さない
+const SUBMIT_DELAY = 2500;         // 終わってから、登録の画面を出すまで(ミリ秒)
+const rank = { scores: null, loading: false, err: '', msg: '', myRank: 0, myName: '', sent: false, offered: false, sending: false };
+function rankStore(k, v) { try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch (e) { return ''; } }
+function finalStage() { return Math.min(stage, STAGE_ORDER.length); }
+function offerSubmit() {
+  if (!SCORE_API || score <= 0 || rank.offered) return;
+  rank.offered = true; rank.sent = false; rank.msg = ''; rank.myRank = 0;
+  setTimeout(() => { if (over && !titleScreen && !menuOpen) openMenu('submit'); }, SUBMIT_DELAY);
+}
+async function loadRanking() {
+  rank.loading = true; rank.err = ''; if (menuOpen) renderMenu();
+  try {
+    const r = await fetch(SCORE_API + '/scores', { cache: 'no-store' });
+    const j = await r.json();
+    if (!r.ok || !j.scores) throw new Error(j.error || r.status);
+    rank.scores = j.scores;
+  } catch (e) { rank.err = T('rankFail'); }
+  rank.loading = false; if (menuOpen) renderMenu();
+}
+function openRanking() { rank.myRank = 0; rank.myName = ''; openMenu('ranking'); loadRanking(); }
+async function sendScore() {
+  if (rank.sending || rank.sent) return;
+  const input = menuEl.querySelector('#rankName'), name = (input ? input.value : '').trim();
+  if (!name) { rank.msg = T('needName'); renderMenu(); return; }
+  rankStore('eq_name', name);
+  rank.sending = true; rank.msg = T('sending'); renderMenu();
+  try {
+    const r = await fetch(SCORE_API + '/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, score, stage: finalStage(), lines, cleared: overReason === 'ending', duration: Math.round(playMs) }) });
+    const j = await r.json();
+    if (r.ok && j.ok) { rank.sent = true; rank.myRank = j.rank; rank.myName = j.name; rank.msg = T('rankIs').replace('{n}', j.rank); menuMode = 'ranking'; menuSel = 0; loadRanking(); }
+    else rank.msg = T(j.error === 'below_cutoff' ? 'notTop' : j.error === 'too_fast' ? 'tooFast' : j.error === 'too_many' ? 'tooMany' : 'rankFail');
+  } catch (e) { rank.msg = T('rankFail'); }
+  rank.sending = false; if (menuOpen) renderMenu();
+}
+const escHtml = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function renderRankArea(box) {
+  if (menuMode === 'submit') {   // 登録: 今回のスコア・ステージと、名前の入力
+    const st = finalStage() + (overReason === 'ending' ? ' ★' : '');
+    box.innerHTML = `<div class="rstat"><span>SCORE</span><b>${score}</b><span>STAGE</span><b>${st}</b></div>
+      <div class="rlabel">${escHtml(T('yourName'))}</div>
+      <input id="rankName" type="text" maxlength="12" autocomplete="nickname" spellcheck="false">
+      <div class="rmsg">${escHtml(rank.msg)}</div>`;
+    const inp = box.querySelector('#rankName');
+    inp.value = rankStore('eq_name');
+    if (!touchMode) setTimeout(() => inp.focus(), 0);   // スマホは、勝手にキーボードを出さない
+    return;
+  }
+  // ランキング: 順位・名前・ステージ(全クリアは ★)・スコア
+  let h = rank.msg ? `<div class="rmsg">${escHtml(rank.msg)}</div>` : '';
+  if (rank.loading && !rank.scores) h += `<div class="rmsg">${escHtml(T('loading'))}</div>`;
+  else if (rank.err) h += `<div class="rmsg">${escHtml(rank.err)}</div>`;
+  else if (rank.scores && !rank.scores.length) h += `<div class="rmsg">${escHtml(T('rankEmpty'))}</div>`;
+  else if (rank.scores) {
+    h += '<div class="rlist"><table><tr><th>#</th><th>NAME</th><th>STAGE</th><th>SCORE</th></tr>';
+    rank.scores.forEach((r, i) => {
+      const me = rank.myName && r.name.toLowerCase() === rank.myName.toLowerCase() ? ' class="me"' : '';
+      h += `<tr${me}><td>${i + 1}</td><td>${escHtml(r.name)}</td><td>${r.stage}${r.cleared ? ' ★' : ''}</td><td>${r.score}</td></tr>`;
+    });
+    h += '</table></div>';
+  }
+  box.innerHTML = h;
+}
+
+// ---- 途中データ(ステージの始まりごとに保存。タイトルの「つづきから」で再開) ----
+// ゲームオーバー・エンディング・リスタート・タイトルへ で消す
+const SAVE_KEY = 'eq_save', SAVE_VER = 1;
+let saveSoon = false;               // ライン消しの最中だったら、消し終わってから保存する
+function saveGame() {
+  if (over) return;
+  if (clearing) { saveSoon = true; return; }
+  saveSoon = false;
+  const data = { v: SAVE_VER, stage, score, lines, level, potion, moon, playMs,
+                 queue: (cur ? [cur.name] : []).concat(queue),   // 落ちている途中のミノは、上から出し直す
+                 board: board.map(row => row.map(c => c && { color: c.color, hole: c.hole, rivet: c.rivet, under: c.under, name: c.name, underName: c.underName, links: c.links })) };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) {}
+}
+function readSave() {
+  try { const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); return d && d.v === SAVE_VER ? d : null; } catch (e) { return null; }
+}
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+function continueGame() {           // つづきから: 保存したステージの始まりから
+  const d = readSave();
+  if (!d) { renderTitle(); return; }
+  reset();
+  stage = d.stage; score = d.score; lines = d.lines; level = d.level;
+  potion = d.potion || 0; moon = d.moon || 0; playMs = d.playMs || 0;
+  board = d.board.map(row => row.map(c => c || null));
+  monsters = []; enemies = []; fx = []; popups = []; hatchlings = [];
+  resetStage();
+  queue = d.queue.slice(); cur = null; spawn();
+  updateHud(); restartBgm();
+  startGame();
 }
 
 // ルネリア: ふだんは fight、モンスターを出すときは fight2、敵に届かれたら damage → down、クリアで happy
 const HERO_IMG = {};
-for (const k of ['fight', 'fight2', 'damage', 'happy', 'down', 'move']) HERO_IMG[k] = loadImg('image/Luneria_' + k + '.png');
+for (const k of ['fight', 'fight2', 'damage', 'happy', 'move']) HERO_IMG[k] = loadImg('image/Luneria_' + k + '.png');
 const HERO_K = 0.658 * UNIT_K;             // 表示の倍率(元の絵の65.8%。fight の高さ106px → 約70px)
 const HERO_X = -9.3 * UNIT_K;               // 絵の左端の位置(絵の左側の余白ぶん外へ出す)
-const HERO_FOOT = { fight: 104, fight2: 104, damage: 106, happy: 126, down: 101, move: 136 };   // 絵の中の足元の高さ
+const HERO_FOOT = { fight: 104, fight2: 104, damage: 106, happy: 126, move: 136 };   // 絵の中の足元の高さ
 const HERO_OFFX = { move: 23 };
 const HERO_POSE_K = { move: 0.9 };   // 絵ごとの大きさの補正(move の絵は少し大きく描かれているので、ほかの絵にそろえる)   // 絵の横の位置のずれ(move の絵は左の余白がないので、体の真ん中を fight にそろえる)
 const HERO_LINE = 44 * UNIT_K;             // 敵がここまで来たら、ルネリアに届いた(ルネリアの右端あたり)
@@ -1549,6 +1743,8 @@ const HERO_TIP_X = 88;            // fight2 の絵の中の、杖の先(三日�
 const SUMMON_MS = 350;            // モンスターを1体出すときの、杖をふるポーズの長さ
 const POP_MS = 250;               // 出てきたモンスターが、ふわっと現れるまで
 const EXIT_SPEED = 120;           // ステージクリアで、みんなが右へはける速さ(px/秒)
+const EXIT_GAP = 4;               // はけるときの、前との間のすき間(px)
+const HERO_RIGHT = 90;            // ルネリアの絵の左端から、体の右端まで(絵の中のドット)
 const EXIT_WAIT = 700;            // 扉が開いてから歩き出すまで(ミリ秒)
 const EXIT_MAX = 12000;           // はけ終わらなくても、この時間で次のステージへ
 const EXIT_HOP_MS = 440, EXIT_HOP_H = 2;   // はけるときのトコトコ(1歩の長さ、跳ねる高さ)
@@ -1586,10 +1782,11 @@ function updateChase(dt) {
   }
   enemies = enemies.filter(e => !(e.dead && e.fade <= 0) && e.x + enemySize(e)[0] > -10);
 }
+// 負けて撤退中(ルネリアが倒れずに、左へあとずさりで画面の外へ)。敵はその場で止まり、追いかけない
+function retreating() { return over && overReason === 'enemy'; }
 function stackOut() { return over && overReason !== 'enemy' && overReason !== 'clear' && overReason !== 'ending'; }   // ブロックが積み上がって終わった
 function heroPose() {
-  if (over && overReason === 'enemy') return 'down';
-  if (heroLose > 0 || hero.hurt > 0 || stackOut()) return 'damage';
+  if (heroLose > 0 || hero.hurt > 0 || stackOut() || retreating()) return 'damage';
   if (exiting()) return 'move';     // 勝ったあと、扉を通って右へはける
   if (door.open || (over && overReason === 'ending')) return 'happy';
   if (summonT > 0) return 'fight2';
@@ -1602,10 +1799,16 @@ function updateStage(dt) {
   if (door.open) door.openT += dt;
   updateDoorAjar(dt);
   if (stackOut()) { heroBack += HERO_BACK_SPEED * dt / 1000; updateChase(dt); }   // 画面の左へ消えるまで、あとずさり。敵が追いかける
+  else if (retreating() && heroX() > -200) heroBack += HERO_BACK_SPEED * dt / 1000;   // 負け: 撤退(あとずさりで左の画面の外へ。敵は追わない)
   if (stageIntroT > 0) stageIntroT -= dt;
   if (stageClear) {                // 扉が開いたら、ルネリアとモンスターがみんなで扉を通って右へはける。全員はけたら次のステージ
     stageClearT -= dt; exitT += dt;
-    if (exitT > EXIT_WAIT) heroBack -= EXIT_SPEED * dt / 1000;
+    if (exitT > EXIT_WAIT) {      // ルネリアはいちばん最後。最後のモンスターと重ならないように、後ろについていく
+      const last = monsters.reduce((a, m) => Math.min(a, m.x), Infinity);
+      const maxX = last - EXIT_GAP - HERO_RIGHT * HERO_K;   // ルネリアの絵の左端がここまで来てよい
+      const to = Math.min(heroX() + EXIT_SPEED * dt / 1000, maxX);
+      if (to > heroX()) heroBack = HERO_X - to;
+    }
     const gone = heroX() > FIELD_W && !monsters.length;
     if ((stageClearT <= 0 && gone) || exitT > EXIT_MAX) nextStage();
   }
@@ -1631,7 +1834,7 @@ const MOON_ZAKO = 0.6, MOON_BOSS = 0.15;   // 満タンの月光波のダメー�
 const MOON_SPEED = 330;                    // 月光波の進む速さ(px/秒)
 let potion = 0, moon = 0, moonWave = null;
 const itemFx = { potion: 0, moon: 0, potionNo: 0, moonNo: 0, full: 0 };   // アイコンの光る演出(残りミリ秒)
-function resetItems() { potion = 0; moon = 0; moonWave = null; for (const k in itemFx) itemFx[k] = 0; }
+function resetItems() { potion = 0; moon = 0; moonWave = null; cast = null; sparks = []; for (const k in itemFx) itemFx[k] = 0; }
 function gainItems(nLines) {
   let add = LINE_GAIN[Math.min(nLines, LINE_GAIN.length - 1)];
   if (!add) return;
@@ -1643,23 +1846,123 @@ function gainItems(nLines) {
     if (moon >= MOON_MAX) { itemFx.full = 900; sfx('full'); }
   }
 }
-function itemsBlocked() { return titleScreen || over || paused || stageClear || heroLose > 0; }
+function itemsBlocked() { return titleScreen || over || paused || stageClear || heroLose > 0 || !!cast; }   // ためている間も使えない
+const potionNeed = () => Math.floor(Math.min(potion, hero.maxHp - hero.hp));
 function usePotion() {
   if (itemsBlocked()) return;
-  const heal = Math.floor(Math.min(potion, hero.maxHp - hero.hp));
-  if (heal <= 0) { itemFx.potionNo = 300; return; }   // 体力が満タン、または瓶が空
-  hero.hp += heal; potion -= heal; hero.shown = true; itemFx.potion = 500;
-  const b = heroBox();
-  popups.push({ x: b.x + b.w / 2, y: Math.max(10, b.y), text: '+' + heal, color: '#7dff8a', t: 0, life: 1200 });
-  sfx('heal');
+  if (potionNeed() <= 0) { itemFx.potionNo = 300; return; }   // 体力が満タン、または瓶が空
+  startCast('heal', () => {   // ためてから回復(量は、ため終わったときに決める)
+    const heal = potionNeed();
+    if (heal <= 0) return false;
+    hero.hp += heal; potion -= heal; hero.shown = true; itemFx.potion = 500;
+    const b = heroBox();
+    popups.push({ x: b.x + b.w / 2, y: Math.max(10, b.y), text: '+' + heal, color: '#7dff8a', t: 0, life: 1200 });
+    sfx('heal');
+  });
 }
 function fireMoon() {
   if (itemsBlocked() || moonWave) return;
   if (moon < 1) { itemFx.moonNo = 300; return; }   // 空っぽ
-  const pow = moon / MOON_MAX;
-  moon = 0; summonT = SUMMON_MS * 2;
-  moonWave = { x: staffTipX(), hit: new Set(), t: 0, pow };
-  sfx('moon');
+  startCast('moon', () => {   // ためてから撃つ(強さは、ため終わったときの量)
+    if (moon < 1) return false;
+    const pow = moon / MOON_MAX;
+    moon = 0;
+    moonWave = { x: staffTipX(), hit: new Set(), t: 0, pow };
+    sfx('moon');
+  });
+}
+// ---- アイテムを使うときの「ため」と、派手めのエフェクト ----
+// くすり: ルネリアのまわりから緑の光の粒が集まって(ため)→ 光の柱と輪がぱっと広がって回復
+// 月光波: 杖の先に金色の光の玉がふくらみ、まわりが少し暗くなる(ため)→ 白く光って月光波が飛び出す
+const CAST_MS = { heal: 450, moon: 650 };   // ための長さ(ミリ秒)
+const HERO_TIP_Y = 10;                      // fight2 の絵の中の、杖の先(三日月)の縦の位置
+let cast = null;                            // { kind, t, dur, go }
+let sparks = [];                            // 光の粒 { x, y, vx, vy, g, age, life, col, s, from, to }
+const castFx = { pillar: 0, ring: 0, flash: 0 };   // 放ったあとの演出の残り時間(ミリ秒)
+const CAST_COL = { heal: ['#7dff8a', '#d8ffe0', '#ffffff'], moon: ['#ffe27a', '#fff6c8', '#ffffff', '#c8b2ee'] };
+function staffTipY() { return FEET_Y + 2 - (HERO_FOOT.fight2 - HERO_TIP_Y) * HERO_K; }
+function heroCenter() { const b = heroBox(); return [b.x + b.w / 2, b.y + b.h * 0.55]; }
+function castCenter(kind) { return kind === 'moon' ? [staffTipX(), staffTipY()] : heroCenter(); }
+function startCast(kind, go) {
+  cast = { kind, t: 0, dur: CAST_MS[kind], go };
+  summonT = CAST_MS[kind] + 250;            // ためている間は、杖をかかげる
+  sfx(kind === 'heal' ? 'healCharge' : 'moonCharge');
+}
+function burstSparks(x, y, kind, n, speed, up) {
+  const cols = CAST_COL[kind];
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = speed * (0.4 + Math.random() * 0.8);
+    sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (up || 0), g: up ? 60 : 0, age: 0, life: 500 + Math.random() * 400,
+                  col: cols[i % cols.length], s: 1.5 + Math.random() * 2 });
+  }
+}
+function updateCast(dt) {
+  for (const k in castFx) if (castFx[k] > 0) castFx[k] -= dt;
+  for (const p of sparks) {
+    p.age += dt;
+    if (p.to) { const q = Math.min(1, p.age / p.life), e = q * q; p.x = p.from[0] + (p.to[0] - p.from[0]) * e; p.y = p.from[1] + (p.to[1] - p.from[1]) * e; }
+    else { p.x += p.vx * dt / 1000; p.y += p.vy * dt / 1000; p.vy += p.g * dt / 1000; p.vx *= Math.pow(0.3, dt / 1000); }
+  }
+  sparks = sparks.filter(p => p.age < p.life);
+  if (!cast) return;
+  if (over || stageClear || heroLose > 0) { cast = null; return; }   // ためている間に終わったら、取りやめ
+  cast.t += dt;
+  const [cx, cy] = castCenter(cast.kind), cols = CAST_COL[cast.kind];
+  for (let n = Math.random() < dt / 18 ? 2 : 0; n > 0; n--) {   // まわりから光の粒が集まってくる
+    const a = Math.random() * Math.PI * 2, r = 26 + Math.random() * 24;
+    sparks.push({ from: [cx + Math.cos(a) * r, cy + Math.sin(a) * r], to: [cx, cy], x: 0, y: 0, age: 0, life: 260 + Math.random() * 120,
+                  col: cols[Math.floor(Math.random() * cols.length)], s: 1.5 + Math.random() * 1.5 });
+  }
+  if (cast.t >= cast.dur) {
+    const { kind, go } = cast;
+    cast = null;
+    if (go() === false) return;
+    if (kind === 'heal') { castFx.pillar = 700; castFx.ring = 600; burstSparks(cx, cy, 'heal', 26, 70, 40); }
+    else { castFx.flash = 260; fieldShake = 220; burstSparks(cx, cy, 'moon', 30, 110, 0); }
+  }
+}
+function drawCast(g) {
+  const p = cast ? Math.min(1, cast.t / cast.dur) : 0;
+  if (cast && cast.kind === 'moon') {   // まわりが少し暗くなる
+    g.fillStyle = `rgba(10,8,30,${0.38 * p})`; g.fillRect(0, 0, FIELD_W, FIELD_H);
+  }
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  if (cast) {
+    const [cx, cy] = castCenter(cast.kind), pulse = 1 + 0.12 * Math.sin(cast.t / 40);
+    const R = (cast.kind === 'moon' ? 6 + 16 * p : 18 + 14 * p) * pulse;
+    const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+    const c0 = cast.kind === 'moon' ? '255,240,170' : '125,255,138';
+    gr.addColorStop(0, `rgba(255,255,255,${0.9 * p})`); gr.addColorStop(0.35, `rgba(${c0},${0.7 * p})`); gr.addColorStop(1, `rgba(${c0},0)`);
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    if (cast.kind === 'moon') {         // 光の玉から4本の光がのびる(回る)
+      g.strokeStyle = `rgba(255,246,200,${0.8 * p})`; g.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        const a = cast.t / 260 + i * Math.PI / 2, L = 8 + 22 * p;
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L); g.stroke();
+      }
+    }
+  }
+  if (castFx.pillar > 0) {              // 回復: 光の柱
+    const q = castFx.pillar / 700, [cx] = heroCenter(), w = 34 * (0.6 + 0.4 * q);
+    const gr = g.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    gr.addColorStop(0, 'rgba(125,255,138,0)'); gr.addColorStop(0.5, `rgba(200,255,210,${0.75 * q})`); gr.addColorStop(1, 'rgba(125,255,138,0)');
+    g.fillStyle = gr; g.fillRect(cx - w / 2, 0, w, FEET_Y + 4);
+  }
+  if (castFx.ring > 0) {                // 回復: 足もとから広がる輪
+    const q = 1 - castFx.ring / 600, [cx] = heroCenter();
+    g.strokeStyle = `rgba(160,255,170,${1 - q})`; g.lineWidth = 2.5;
+    g.beginPath(); g.ellipse(cx, FEET_Y, 10 + 40 * q, 3 + 10 * q, 0, 0, Math.PI * 2); g.stroke();
+  }
+  for (const s of sparks) {             // 光の粒(ドットのような四角)
+    g.globalAlpha = s.to ? Math.min(1, s.age / 80) : 1 - s.age / s.life;
+    g.fillStyle = s.col; g.fillRect(Math.round(s.x - s.s / 2), Math.round(s.y - s.s / 2), s.s, s.s);
+  }
+  g.globalAlpha = 1;
+  g.restore();
+  if (castFx.flash > 0) {               // 月光波: 画面が白く光る
+    g.fillStyle = `rgba(255,252,230,${0.55 * castFx.flash / 260})`; g.fillRect(0, 0, FIELD_W, FIELD_H);
+  }
 }
 function updateItemFx(dt) { for (const k in itemFx) if (itemFx[k] > 0) itemFx[k] -= dt; }
 function updateMoonWave(dt) {
@@ -1701,13 +2004,12 @@ function drawMoonWave(g) {   // 三日月の形の光が、右へ飛んでいく
 
 // アイテムのボタン(右の欄)
 function itemCanvas(id) { const c = document.getElementById(id); return c && c.getContext && c.width ? c : null; }
-// くすりの瓶: ボタンの中に瓶の絵(image/bin_back.png: ガラス、bin_front.png: つや、bin_mask.png: 液体が入る形)
-const BIN_BACK = loadImg('image/bin_back.png'), BIN_FRONT = loadImg('image/bin_front.png'), BIN_MASK = loadImg('image/bin_mask.png');
-const BIN_IMG = 200, BIN_K = 0.8;                 // 絵の大きさ(px) / ボタンの中での倍率
-const LIQUID_TOP = 39, LIQUID_BOT = 197;          // 絵の中で、液体が入る範囲(上・下)
-const LIQUID_FULL = 0.9;                          // 瓶の中の液体は9割で満タン(首は空けておく)
-// ボタン(角丸の正方形): たまる前は暗いグレー、たまったところは明るいグレー。ボタン全体がゲージで、下からたまる
-const BTN = { dim: '#33353c', dimEdge: '#52555e', lit: '#c3c6ce', litEdge: '#eef0f4', r: 26 };
+// くすりの瓶: ボタンの中に瓶のドット絵(32x32)。重ねる順: bin_back.png(ガラス) → bin_in.png(中身) → bin_front.png(つや)
+// 中身の絵は満タンの形(9割まで)。ゲージの高さより下の部分だけ描く
+const BIN_BACK = loadImg('image/bin_back.png'), BIN_IN = loadImg('image/bin_in.png'), BIN_FRONT = loadImg('image/bin_front.png');
+const ITEM_PX = 32, ITEM_DOT = 5;                 // 絵の大きさ(px) / 1ドットの大きさ(画面の px。ドットのまま拡大)
+// ボタン(角丸の正方形): たまる前は暗いグレー、たまったところは緑。ボタン全体がゲージで、下からたまる
+const BTN = { dim: '#1c1d22', dimEdge: '#dfe2e8', lit: '#00bb00', litEdge: '#ffffff', r: 26 };   // たまる前は暗く、たまったところは緑。ふちは白に近い色
 function roundRect(g, x, y, w, h, r) {
   g.beginPath(); g.moveTo(x + r, y);
   g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -1734,38 +2036,33 @@ function drawGaugeButton(c, level, inner, edge, shake) {   // inner(g, lit, line
   g.lineWidth = 4; g.strokeStyle = edge || (level >= 1 ? BTN.litEdge : BTN.dimEdge); g.stroke();
   g.setTransform(1, 0, 0, 1, 0, 0);
 }
-const liquidLayer = (() => { const c = document.createElement('canvas'); c.width = c.height = BIN_IMG; return c; })();
+function imgOk(img) { return img.complete && img.naturalWidth; }
 function drawBottleInner(g, lit, line, S) {
-  if (!BIN_BACK.complete || !BIN_BACK.naturalWidth) return;
-  const w = BIN_IMG * BIN_K, x0 = (S - w) / 2, y0 = (S - w) / 2;
-  if (lit && BIN_MASK.complete && BIN_MASK.naturalWidth) {   // 瓶の中だけ緑。液面はゲージの高さ(ただし9割で満タン)
-    const top = LIQUID_BOT - LIQUID_FULL * (LIQUID_BOT - LIQUID_TOP);
-    const surf = Math.max(top, (line - y0) / BIN_K);
-    const lg = liquidLayer.getContext('2d');
-    lg.globalCompositeOperation = 'source-over'; lg.clearRect(0, 0, BIN_IMG, BIN_IMG);
-    const grad = lg.createLinearGradient(0, surf, 0, LIQUID_BOT);
-    grad.addColorStop(0, '#7cf59a'); grad.addColorStop(0.35, '#3fd96a'); grad.addColorStop(1, '#16983e');
-    lg.fillStyle = grad; lg.fillRect(0, surf, BIN_IMG, BIN_IMG - surf);
-    lg.fillStyle = 'rgba(220,255,225,0.9)'; lg.fillRect(0, surf, BIN_IMG, 3);   // 液面
-    lg.globalCompositeOperation = 'destination-in'; lg.drawImage(BIN_MASK, 0, 0);
-    lg.globalCompositeOperation = 'source-over';
-    g.drawImage(liquidLayer, x0, y0, w, w);
-  }
+  if (!imgOk(BIN_BACK)) return;
+  const w = ITEM_PX * ITEM_DOT, x0 = Math.round((S - w) / 2), y0 = Math.round((S - w) / 2);
+  g.imageSmoothingEnabled = false;
   g.globalAlpha = lit ? 1 : 0.32;   // たまる前は暗く
   g.drawImage(BIN_BACK, x0, y0, w, w);
-  if (BIN_FRONT.complete && BIN_FRONT.naturalWidth) g.drawImage(BIN_FRONT, x0, y0, w, w);
+  if (lit && imgOk(BIN_IN)) {       // 中身: ゲージの高さから下(ドットの行にそろえる)
+    const r = Math.max(0, Math.min(ITEM_PX, Math.ceil((line - y0) / ITEM_DOT)));
+    if (r < ITEM_PX) {
+      g.drawImage(BIN_IN, 0, r, ITEM_PX, ITEM_PX - r, x0, y0 + r * ITEM_DOT, w, (ITEM_PX - r) * ITEM_DOT);
+      g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35;   // 液面の1行を少し明るく
+      g.drawImage(BIN_IN, 0, r, ITEM_PX, 1, x0, y0 + r * ITEM_DOT, w, ITEM_DOT);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    }
+  }
+  if (imgOk(BIN_FRONT)) g.drawImage(BIN_FRONT, x0, y0, w, w);
   g.globalAlpha = 1;
 }
 // 月光波のボタン: 中に三日月と星の絵(image/moon-cross-icon.png)。たまる前は暗く、彩度を下げる
 const MOON_ICON = loadImg('image/moon-cross-icon.png');
-const MOON_ICON_K = 0.7;          // ボタンの中での大きさ(ボタンの幅に対する割合)
 let moonDim = null;
-function drawMoonInner(g, lit, line, S) {
+function drawMoonInner(g, lit, line, S) {   // 瓶と同じ大きさ(32x32 のドット絵を、ドットのまま拡大)
   const img = MOON_ICON;
-  if (!img.complete || !img.naturalWidth) return;
-  const k = S * MOON_ICON_K / Math.max(img.naturalWidth, img.naturalHeight);
-  const w = img.naturalWidth * k, h = img.naturalHeight * k, x = (S - w) / 2, y = (S - h) / 2;
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  if (!imgOk(img)) return;
+  const w = img.naturalWidth * ITEM_DOT, h = img.naturalHeight * ITEM_DOT, x = Math.round((S - w) / 2), y = Math.round((S - h) / 2);
+  g.imageSmoothingEnabled = false;
   if (lit) { g.drawImage(img, x, y, w, h); return; }
   if (!moonDim) {   // 暗い絵: 暗いグレーを上から重ねる(絵の形の中だけ)
     moonDim = document.createElement('canvas'); moonDim.width = img.naturalWidth; moonDim.height = img.naturalHeight;
@@ -1794,28 +2091,47 @@ function drawItems(t) {
 function heroBox() {
   return { x: heroX() + 19 * HERO_K, y: FEET_Y + 2 - 104 * HERO_K, w: 71 * HERO_K, h: 104 * HERO_K };
 }
+// ドット絵をくっきり描くための補助: 倍率 k(フィールドの座標での倍率)が、画面で整数倍に近ければ(±6%)ちょうど整数倍に。
+// devPx: フィールドの座標を、画面のドットの位置にそろえる
+function snapPixK(k) { const s = k * FIELD_SCALE, n = Math.round(s); return n >= 1 && Math.abs(s - n) <= 0.06 * n ? n / FIELD_SCALE : k; }
+function devPx(v) { return Math.round(v * FIELD_SCALE) / FIELD_SCALE; }
+// ルネリアの体力バー: 上の画面の左上の角の近くに、前の3倍の大きさ(幅 34→102、太さ 4→12)でいつも出す
+const HERO_HP_W = 102, HERO_HP_H = 12, HERO_HP_XY = [6, 6];
+function drawHeroHp(g) {
+  if (titleScreen || (over && overReason === 'enemy')) return;
+  const [x, y] = HERO_HP_XY;
+  const r = hero.hp / hero.maxHp;   // 緑。半分以下でオレンジ、25%以下で赤
+  drawHpBar(g, x + HERO_HP_W / 2, y + HERO_HP_H / 2 + 1, HERO_HP_W, r, r <= 0.25 ? '#ff3c3c' : r <= 0.5 ? '#ffa03c' : '#5fd35f', HERO_HP_H, 1);
+}
+// 体力が赤(25%以下)のとき: 上の画面の縁を、赤くゆっくり点滅させる(太め)
+function heroDanger() { return !titleScreen && !over && !stageClear && hero.hp > 0 && hero.hp / hero.maxHp <= 0.25; }
+function drawDangerFrame(g) {
+  if (!heroDanger()) return;
+  const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(titleT / 450));   // ゆっくり(約2.8秒で1回)
+  g.save();
+  g.strokeStyle = `rgba(255,40,40,${a * 0.45})`; g.lineWidth = 22; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 内側へのにじみ(縁から 11px)
+  g.strokeStyle = `rgba(255,50,50,${a})`; g.lineWidth = 10; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 太めの縁(見えるのは内側の 5px)
+  g.restore();
+}
 function drawHero(g) {
   const pose = heroPose(), img = HERO_IMG[pose];
   if (!img.complete || !img.naturalWidth) return;
   g.imageSmoothingEnabled = false;   // ドット絵は補間せず、ぼかさずに拡大・縮小する
-  const pk = HERO_K * (HERO_POSE_K[pose] || 1);
+  const pk = snapPixK(HERO_K * (HERO_POSE_K[pose] || 1));   // 画面で整数倍に近ければ、ちょうど整数倍にする(顔がゆがまないように)
   const w = img.naturalWidth * pk, h = img.naturalHeight * pk;
   const blink = (heroLose > 0 && Math.floor(heroLose / 70) % 2 === 0) || (hero.hurt > 0 && Math.floor(hero.hurt / 70) % 2 === 0);
   g.globalAlpha = blink ? 0.5 : 1;
   const [src] = pixSrc(g, img, pk * FIELD_SCALE);
-  const bob = stackOut() ? Math.abs(Math.sin(heroBack / 6)) * 1.5 : exitHop(exitT);   // あとずさり・はけるときの足どり
-  g.drawImage(src, Math.round(heroX() + (HERO_OFFX[pose] || 0) * HERO_K), Math.round(FEET_Y + 2 - HERO_FOOT[pose] * pk - bob), Math.round(w), Math.round(h));
+  const bob = stackOut() || retreating() ? Math.abs(Math.sin(heroBack / 6)) * 1.5 : exitHop(exitT);   // あとずさり・はけるときの足どり
+  g.drawImage(src, devPx(heroX() + (HERO_OFFX[pose] || 0) * HERO_K), devPx(FEET_Y + 2 - HERO_FOOT[pose] * pk - bob), w, h);   // 画面のドットの位置にそろえる
   g.globalAlpha = 1;
-  if (hero.shown && !(over && overReason === 'enemy')) {
-    const b = heroBox();
-    drawHpBar(g, b.x + b.w / 2, Math.max(4, b.y - 4), 34, hero.hp / hero.maxHp, '#ffb0e0');
-  }
+  // ルネリアの体力バーは、上の画面の左上の角に大きく(前の3倍。drawHeroHp)
 }
 
 // 扉の絵: 閉じた扉 / 開いた扉の奥側(キャラより向こう)/ 開いた扉の手前側(キャラより手前)。
 // 絵の上・下・右の端をフィールドの上・下・右の端にぴったり合わせて描く。元は赤(火)で、属性の色へ色相を回す
 const DOOR_SRC = { close: loadImg('image/close_red.png'), back: loadImg('image/open_back_red.png'), front: loadImg('image/open_front_red.png') };
-const DOOR_IMG_W = 337, DOOR_IMG_H = 695, DOOR_IMG_L = 44;   // 絵の大きさと、閉じた扉の左端
+const DOOR_IMG_W = 97, DOOR_IMG_H = 200, DOOR_IMG_L = 44 * 200 / 695;   // 絵の大きさ(97x200)と、閉じた扉の左端
 const DOOR_DRAW_W = DOOR_IMG_W * FIELD_H / DOOR_IMG_H;       // フィールド上の絵の幅
 // 扉の明るさ(背景に合わせる。ステージの属性ごと)
 const DOOR_BRIGHTS = { S: 0.8, J: 0.9, I: 0.95, L: 0.7, Z: 0.7, O: 0.7, T: 0.7 };
@@ -1886,11 +2202,11 @@ function drawDoorPart(g, part) {
   const c = doorImage(part);
   if (!c) return;
   const x = FIELD_W - DOOR_DRAW_W;
-  pixelSmooth(g, DOOR_DRAW_W / DOOR_IMG_W);
-  g.drawImage(c, x, 0, DOOR_DRAW_W, FIELD_H);
+  const [src] = pixSrc(g, c, DOOR_DRAW_W / DOOR_IMG_W * FIELD_SCALE);   // 小さいドット絵なので、ドットのまま拡大(境目だけ軽くなめらかに)
+  g.drawImage(src, x, 0, DOOR_DRAW_W, FIELD_H);
   if (door.flash > 0 && part === 'close') {   // 攻撃を受けたら白く光る
     g.globalAlpha = 0.3; g.globalCompositeOperation = 'lighter';
-    g.drawImage(c, x, 0, DOOR_DRAW_W, FIELD_H);
+    g.drawImage(src, x, 0, DOOR_DRAW_W, FIELD_H);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   }
 }
@@ -1912,7 +2228,10 @@ const TITLE_W = 480, TITLE_H = 450;   // タイトルの絵の中の座標
 const TITLE_LOGO_Y = 78, TITLE_LOGO_MARGIN = 6, TITLE_SUB_Y = 124;   // ロゴの高さ・左右の余白 / サブタイトルの高さ
 const TITLE_HERO_H = 240;          // ルネリアの高さ(1.5倍)
 function titleItems() {
-  return [['スタート', startGame], ['せってい', () => openMenu('settings')], ['あそびかた', () => openMenu('help')]];
+  const list = [[T('start'), () => { clearSave(); startGame(); }], [T('settings'), () => openMenu('settings')], [T('howto'), () => openMenu('help')]];
+  if (SCORE_API) list.splice(1, 0, [T('ranking'), openRanking]);   // ランキング(サーバーの URL があるときだけ)
+  if (readSave()) list.unshift([T('cont'), continueGame]);   // 途中データがあれば「つづきから」をいちばん上に
+  return list;
 }
 function renderTitle() {
   if (!titleEl || !titleEl.querySelector) return;
@@ -1928,7 +2247,7 @@ function startGame() {
   stageIntroT = 2000;               // 「STAGE 1」を見せてから始める
   sfx('clear', 1);
 }
-function backToTitle() { closeMenu(); reset(); restartBgm(); showTitle(true); }
+function backToTitle() { clearSave(); closeMenu(); reset(); restartBgm(); showTitle(true); }
 // 絵の大きさ: 画面の幅(と高さ)に合わせる。ボタンのぶんの高さは空けておく
 function fitTitle() {
   if (!titleCv || !titleCv.style) return;
@@ -1937,16 +2256,50 @@ function fitTitle() {
   titleCv.style.width = Math.round(w) + 'px'; titleCv.style.height = Math.round(w * TITLE_H / TITLE_W) + 'px';
   titleCv.width = Math.round(w * dpr); titleCv.height = Math.round(w * TITLE_H / TITLE_W * dpr);
 }
-const TITLE_STARS = Array.from({ length: 40 }, (_, i) => [(i * 97 + 31) % TITLE_W, (i * 53 + 17) % (TITLE_H - 60), i % 3]);   // 夜空の星(決まった位置)
+// 夜空の星: タイトル画面全体(後ろのキャンバス titleBg)に散らす。[x, y(画面に対する割合), 色, 大きさ(px), 十字に光るか]
+// 8個に1個は十字に光る星(十字の長さは決まった長さ)。ほかは 4〜7px の四角い星
+const TITLE_STARS = (() => {   // 決まった乱数で、近すぎないように(2つ組に見えないように)ばらばらに置く
+  let seed = 12345; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const list = [];
+  for (let tries = 0; list.length < 100 && tries < 5000; tries++) {
+    const x = rnd(), y = rnd();
+    if (list.some(([sx, sy]) => Math.hypot((sx - x) * 0.5, sy - y) < 0.045)) continue;   // 縦長の画面なので、横の距離は半分で見る
+    const i = list.length;
+    list.push([x, y, i % 3, 4 + Math.floor(rnd() * 4), i % 8 === 2]);
+  }
+  return list;
+})();
+const STAR_COLS = ['#ffe9a8', '#c8b2ee', '#a8d8ff'];
+const titleBg = document.getElementById('titleBg');
+function drawTitleStars() {
+  if (!titleBg || !titleBg.getContext) return;
+  const dpr = window.devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  if (titleBg.width !== Math.round(W * dpr) || titleBg.height !== Math.round(H * dpr)) { titleBg.width = Math.round(W * dpr); titleBg.height = Math.round(H * dpr); }
+  const g = titleBg.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, titleBg.width, titleBg.height);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const [fx, fy, c, size, cross] of TITLE_STARS) {   // きらきらまたたく星(ドットのような四角)
+    const x = Math.round(fx * W), y = Math.round(fy * H);
+    const tw = 0.5 + 0.5 * Math.sin(titleT / 520 + fx * 40 + fy * 25);   // またたき 0〜1
+    g.fillStyle = STAR_COLS[c];
+    if (cross) {   // 十字に光る星: 光の線がのびたり縮んだりする
+      const arm = 11;   // 十字の光の長さは決まった長さ(のび縮みはしない。またたきは明るさだけ)
+      g.globalAlpha = 0.6 + 0.4 * tw;
+      g.fillRect(x - 1, y - arm, 3, arm * 2 + 1); g.fillRect(x - arm, y - 1, arm * 2 + 1, 3);
+      g.fillStyle = '#ffffff'; g.fillRect(x - 2, y - 2, 5, 5);
+    } else {
+      g.globalAlpha = 0.4 + 0.6 * tw;
+      g.fillRect(x - Math.floor(size / 2), y - Math.floor(size / 2), size, size);
+    }
+  }
+  g.globalAlpha = 1;
+}
 function drawTitle() {
   if (!titleCv || !titleCv.getContext || !titleCv.width) return;
   const g = titleCv.getContext('2d'), k = titleCv.width / TITLE_W;
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, titleCv.width, titleCv.height);
   g.setTransform(k, 0, 0, k, 0, 0);
-  for (const [x, y, s] of TITLE_STARS) {   // きらきらまたたく星
-    g.globalAlpha = 0.25 + 0.5 * (0.5 + 0.5 * Math.sin(titleT / 500 + x));
-    g.fillStyle = s ? '#c8b2ee' : '#ffe9a8'; g.fillRect(x, y, s === 2 ? 2 : 1.5, s === 2 ? 2 : 1.5);
-  }
+  drawTitleStars();   // 星は後ろのキャンバスに(画面全体)
   g.globalAlpha = 1;
   // ロゴ: 1文字ずつ属性の色で、ふわふわ上下
   const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];   // ステージの順の色
@@ -1970,8 +2323,8 @@ function drawTitle() {
   });
   g.textAlign = 'center'; g.font = pixFont(32);
   g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.85)';
-  g.strokeText('ルネリアと たまごの ぼうけん', TITLE_W / 2, TITLE_SUB_Y);
-  g.fillStyle = '#ffe9a8'; g.fillText('ルネリアと たまごの ぼうけん', TITLE_W / 2, TITLE_SUB_Y);
+  g.strokeText(T('subtitle'), TITLE_W / 2, TITLE_SUB_Y, TITLE_W - 8);
+  g.fillStyle = '#ffe9a8'; g.fillText(T('subtitle'), TITLE_W / 2, TITLE_SUB_Y, TITLE_W - 8);
   // ルネリア(よろこぶ姿)
   const img = HERO_IMG.happy;
   if (img.complete && img.naturalWidth) {
@@ -1993,10 +2346,10 @@ function drawTitle() {
 // 勝ったときの文字: タイトルのロゴのように1文字ずつ色を変えて、上の方に大きく。1文字ずつポンと出て、ふわふわ上下
 const WIN_TEXT_Y = 0.36, WIN_TEXT_W = 0.92;   // 高さ(フィールドの高さに対する割合)/ 幅(扉より左の広さに対する割合。扉にかからないように)
 let winTextKey = null, winTextT0 = 0;
-function drawWinText(g, text) {
+function drawWinText(g, text, gold, glow = gold) {   // gold: 金色の文字(なければ1文字ずつ色を変える)。glow: 金色に光る
   if (winTextKey !== text) { winTextKey = text; winTextT0 = titleT; }
   const t = titleT - winTextT0;
-  const cols = ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];
+  const cols = gold ? ['#ffd84a'] : ['#46c43c', '#3a5be0', '#2fd0e8', '#f08a1c', '#e04040', '#e8d02f', '#a443d4'];
   const chars = [...zen(text)];
   g.font = '100px Yodaka, Misaki, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
   const area = door.none ? FIELD_W : DOOR_X;   // 扉があれば、扉より左に収める
@@ -2013,25 +2366,38 @@ function drawWinText(g, text) {
     const y = FIELD_H * WIN_TEXT_Y + Math.sin(titleT / 380 - i * 0.6) * 3;
     g.save(); g.translate(cx, y); g.scale(pop, pop);
     g.lineWidth = px * 0.16; g.strokeStyle = 'rgba(20,12,30,0.95)'; g.strokeText(c, 0, 0);
+    if (glow) {   // 金色に光る(グロー): 光の強さがゆっくり強くなったり弱くなったりする
+      g.shadowColor = 'rgba(255,214,90,0.95)'; g.shadowBlur = px * (0.35 + 0.2 * Math.sin(titleT / 300)) * FIELD_SCALE;
+    }
     g.fillStyle = col; g.fillText(c, 0, 0);
-    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillText(c, 0, -px * 0.04);   // 上側を少し明るく(立体感)
+    g.shadowBlur = 0;
+    g.fillStyle = gold ? 'rgba(255,250,210,0.55)' : 'rgba(255,255,255,0.35)'; g.fillText(c, 0, -px * 0.04);   // 上側を少し明るく(立体感)
     g.fillStyle = col; g.globalAlpha = 0.85; g.fillText(c, 0, 0);
     g.restore();
   });
   g.textAlign = 'center';
 }
+const STAGE_TEXT_K = 1.8;   // ステージの始まりの「STAGE 1」の文字の大きさ(32px に対する倍率)
+const FAIL_TEXT_Y = 0.62, FAIL_TEXT_PX = 40;   // ゲームオーバーの文字の高さ(フィールドの高さに対する割合)・大きさ
 function drawStageText(g) {
   if (titleScreen) return;
   let text = null, col = '#ffffff';
-  if (stageClear) { drawWinText(g, 'QUEST CLEAR!'); return; }
-  else if (over && overReason === 'enemy') { text = 'QUEST FAILED'; col = '#ff6a6a'; }
-  else if (over && overReason === 'ending') { drawWinText(g, 'ALL CLEAR!'); return; }
+  if (stageClear) { drawWinText(g, 'STAGE CLEAR!', true); return; }   // ステージクリアは金色
+  else if (over && overReason === 'enemy') {   // ゲームオーバー: 大きめに、少し下に
+    const tx = zen('QUEST FAILED'), y = FIELD_H * FAIL_TEXT_Y;
+    g.textAlign = 'center'; g.font = FAIL_TEXT_PX + 'px ' + fontStack();   // 1.25倍(フィールドの幅に収まる大きさ)
+    g.strokeStyle = 'rgba(0,0,0,0.42)'; g.lineWidth = 7; g.strokeText(tx, FIELD_W / 2, y);   // 黒い縁取り(前の半分の濃さ)
+    g.fillStyle = '#b81c1c'; g.fillText(tx, FIELD_W / 2, y);   // 暗めの赤
+    return;
+  }
+  else if (over && overReason === 'ending') { drawWinText(g, 'ALL CLEAR!', false, true); return; }   // ゲームクリアは、カラフルな文字に金色の光
   else if (stageIntroT > 0) { text = isFinalStage() ? 'FINAL STAGE' : 'STAGE ' + stage; g.globalAlpha = Math.min(1, stageIntroT / 500); }
   if (!text) return;
   text = zen(text);
-  g.textAlign = 'center'; g.font = pixFont(32);
-  g.strokeStyle = 'rgba(0,0,0,0.8)'; g.lineWidth = 5; g.strokeText(text, FIELD_W / 2, FIELD_H / 2 + 8);
-  g.fillStyle = col; g.fillText(text, FIELD_W / 2, FIELD_H / 2 + 8);
+  const px = 32 * STAGE_TEXT_K;   // 「STAGE 1」などは 1.8倍(長い文字はフィールドの幅に収める)
+  g.textAlign = 'center'; g.font = px.toFixed(1) + 'px ' + fontStack();
+  g.strokeStyle = 'rgba(0,0,0,0.8)'; g.lineWidth = 5 * STAGE_TEXT_K; g.strokeText(text, FIELD_W / 2, FIELD_H / 2 + px * 0.3, FIELD_W - 20);
+  g.fillStyle = col; g.fillText(text, FIELD_W / 2, FIELD_H / 2 + px * 0.3, FIELD_W - 20);
   g.globalAlpha = 1;
 }
 
@@ -2044,7 +2410,7 @@ const BOSS_NAME = {
 };
 const bossEl = id => document.getElementById(id);
 let bossShown = null;   // いま表示しているボス(変わったときだけ絵や名前を書き直す)
-function attrChip(a) { return '<span class="attr" style="background:' + ATTR_COLOR[a] + '">' + a + '</span>'; }
+function attrChip(a) { return '<span class="attr" style="background:' + ATTR_COLOR[a] + '">' + attrName(a) + '</span>'; }
 const CARD_ZAKO_K = 0.7, CARD_BOSS_K = 1.15;   // カードの絵の大きさ(枠に収めた大きさに対する倍率)
 function updateBossCard() {
   const e = enemies.find(x => x.boss && !x.dead);   // カードはボスのときだけ出す
@@ -2053,7 +2419,7 @@ function updateBossCard() {
   if (!e) {
     if (bossShown !== 'none') {
       bossShown = 'none'; card.className = 'none';
-      bossEl('bossEn').textContent = '-'; bossEl('bossJa').textContent = stageQueue.length ? 'つぎの敵を待っています' : '';
+      bossEl('bossEn').textContent = '-'; bossEl('bossJa').textContent = stageQueue.length ? T('waitEnemy') : '';
       for (const id of ['bossAttr', 'bossWeak', 'bossHp', 'bossAtk']) bossEl(id).textContent = '';
       const c = bossEl('bossImg'); c.getContext('2d').clearRect(0, 0, c.width, c.height);
     }
@@ -2064,20 +2430,22 @@ function updateBossCard() {
     if (!img) return;   // 絵の読み込みを待つ
     bossShown = e; card.className = '';
     const p = stats(e.key);
-    const [en, ja] = e.boss ? (BOSS_NAME[e.key] || [e.key, '']) : [p.en, p.ja];
-    bossEl('bossEn').textContent = en;   // 敵の英語名は半角のまま
-    bossEl('bossJa').textContent = '(' + ja + ')' + (e.boss ? ' ボス' : '');
+    // 名前は1行だけ: 日本語のときはカタカナ、ほかの言語は英語
+    const en = e.boss ? (BOSS_NAME[e.key] || [e.key])[0] : p.en;
+    const kana = e.boss ? (BOSS_NAME[e.key] || [])[1] : p.ja;
+    bossEl('bossEn').textContent = lang === 'ja' && kana ? kana : en;
+    bossEl('bossJa').textContent = '';
     if (e.boss) {
       const attr = ATTR[e.key[0]];
       bossEl('bossAttr').innerHTML = attrChip(attr);
       const weak = Object.keys(TYPE_CHART).filter(a => TYPE_CHART[a][attr] === 2);
-      bossEl('bossWeak').innerHTML = weak.length ? weak.map(attrChip).join(' ') : 'なし';
+      bossEl('bossWeak').innerHTML = weak.length ? weak.map(attrChip).join(' ') : T('none');
     } else {   // ザコは属性なし
-      bossEl('bossAttr').innerHTML = '<span class="attr" style="background:#9aa0ae">無</span>';
-      bossEl('bossWeak').innerHTML = 'なし';
+      bossEl('bossAttr').innerHTML = '<span class="attr" style="background:#9aa0ae">' + attrName('無') + '</span>';
+      bossEl('bossWeak').innerHTML = T('none');
     }
     const tackle = p.style === 'tackle';
-    bossEl('bossAtk').textContent = Math.round((tackle ? p.tackle : p.atk) * e.atkMul) + (tackle ? '(体当たり)' : '(魔法)');
+    bossEl('bossAtk').textContent = Math.round((tackle ? p.tackle : p.atk) * e.atkMul) + T(tackle ? 'tackle' : 'magic');
     // 絵: 枠に収まるように縮める(縮めるときはなめらかに、拡大するときはドットのまま)
     const c = bossEl('bossImg'), g = c.getContext('2d');
     g.clearRect(0, 0, c.width, c.height);
@@ -2231,6 +2599,9 @@ function drawField() {
   }
   drawFx(g);
   drawMoonWave(g);
+  drawCast(g);
+  drawDangerFrame(g);
+  drawHeroHp(g);
   drawStageText(g);
   g.setTransform(1, 0, 0, 1, 0, 0);
 }
@@ -2294,7 +2665,7 @@ function draw() {
 
   if (stageClear) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, BW, BH);
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = pixFont(32); ctx.fillText('次のステージへ', BW / 2, BH / 2);   // 「クエストクリア」は上のフィールドに大きく出す
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = pixFont(32); ctx.fillText(T('nextStage'), BW / 2, BH / 2, BW - 8);   // 「クエストクリア」は上のフィールドに大きく出す
   }
   if (over || paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -2304,9 +2675,9 @@ function draw() {
     ctx.fillText(zen(!over ? 'PAUSE' : overReason === 'ending' ? 'THE END' : overReason === 'clear' ? 'QUEST CLEAR' : 'QUEST FAILED'), BW / 2, BH / 2 - 10);
     if (over) {
       ctx.font = pixFont(16);
-      const why = overReason === 'ending' ? 'ラスボスをたおした! ぼうけんクリア!' : overReason === 'clear' ? '扉が開いた!' : overReason === 'enemy' ? '' : 'ブロックが積み上がった';
-      if (why) ctx.fillText(why, BW / 2, BH / 2 + 20);
-      ctx.font = pixFont(16); ctx.fillText(touchMode ? 'うえの がめんを タップで メニュー' : zen('R') + 'でリスタート', BW / 2, BH / 2 + 46);
+      const why = overReason === 'ending' ? T('whyEnding') : overReason === 'clear' ? T('whyClear') : overReason === 'enemy' ? '' : T('whyStack');
+      if (why) ctx.fillText(why, BW / 2, BH / 2 + 20, BW - 8);
+      ctx.font = pixFont(16); ctx.fillText(T(touchMode ? 'tapMenu' : 'rRestart'), BW / 2, BH / 2 + 46, BW - 8);
     }
   }
 }
@@ -2329,27 +2700,29 @@ function togglePause() { if (menuOpen) return; if (!over && !titleScreen) { paus
 let menuOpen = false, menuSel = 0, menuPaused = false, menuMode = 'game';   // game: ゲーム中 / settings: タイトルの設定 / help: あそびかた
 const menuEl = document.getElementById('menu');
 function settingItems() {
-  const list = [['ＢＧＭ: ' + (bgmMuted ? 'オフ' : 'オン'), () => { toggleBgm(); renderMenu(); }]];
-  if (touchMode) list.push(['そうさ: ' + (gMode === 'flick' ? 'フリック' : 'ボタン'), () => {
+  const list = [[T('bgm') + T(bgmMuted ? 'off' : 'on'), () => { toggleBgm(); renderMenu(); }]];
+  if (touchMode) list.push([T('controls') + T(gMode === 'flick' ? 'flick' : 'buttons'), () => {
     gMode = gMode === 'flick' ? 'buttons' : 'flick'; store.set('eq_mode', gMode); applyMode(); fitAll(); renderMenu(); }]);
+  list.push([T('language') + LANG_NAME[lang], () => setLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length])]);   // 押すたびに次の言語へ
   return list;
 }
+// 言語を変える: 画面の文字をみんな書き直して、端末に覚えておく
+function setLang(l) {
+  lang = l; store.set('eq_lang', l);
+  applyLangHtml(); bossShown = null; renderMenu(); renderTitle(); fitAll();
+}
 function menuItems() {   // [ラベル, 動き]
-  if (menuMode === 'help') return [['とじる', closeMenu]];
-  if (menuMode === 'settings') return [['とじる', closeMenu], ...settingItems()];
-  return [[over ? 'とじる' : 'つづける', closeMenu], ['リスタート', () => { closeMenu(); restartGame(); }], ...settingItems(),
-          ['タイトルへ', backToTitle]];
+  if (menuMode === 'help') return [[T('close'), closeMenu]];
+  if (menuMode === 'submit') return rank.sent ? [[T('close'), closeMenu]] : [[T('regBtn'), sendScore], [T('close'), closeMenu]];
+  if (menuMode === 'ranking') return [[T('close'), closeMenu]];
+  if (menuMode === 'settings') return [...settingItems(), [T('close'), closeMenu]];   // とじる(つづける)は、いちばん下
+  return [[T('restart'), () => { closeMenu(); restartGame(); }], ...settingItems(), [T('toTitle'), backToTitle],
+          [T(over ? 'close' : 'resume'), closeMenu]];
 }
 // あそびかた(操作は、スマホかキーボードかで変える)
 function helpLines() {
-  const keys = touchMode && gMode === 'flick'
-    ? [['よこに ドラッグ', 'いどう'], ['ひだり / みぎを タップ', 'かいてん'], ['したの 2わりを タップ', '1マス おとす(ながおしで れんぞく)'], ['したへ はじく', 'すぐ おとす'],
-       ['びんの ボタン', 'くすり(かいふく)'], ['つきの ボタン', 'げっこうは'], ['うえの がめんを タップ', 'メニュー']]
-    : touchMode
-    ? [['がめんの ボタン', 'いどう・かいてん・おとす'], ['びんの ボタン', 'くすり(かいふく)'], ['つきの ボタン', 'げっこうは'], ['うえの がめんを タップ', 'メニュー']]
-    : [['← →', 'いどう'], ['↑ / X / Z', 'かいてん'], ['↓', '1マス おとす'], ['SPACE', 'すぐ おとす'], ['C / テンキー +', 'くすり(かいふく)'],
-       ['V / テンキー ENTER', 'げっこうは'], ['ESC', 'メニュー'], ['P', 'ポーズ'], ['M', 'BGM オン/オフ'], ['R', 'リスタート']];
-  return { keys, notes: ['たまごを かさねて ラインを けそう', '水玉の たまごから モンスターが うまれて たたかうよ', 'ラインを けすと くすりと げっこうはが たまるよ'] };
+  const kind = touchMode && gMode === 'flick' ? 'flick' : touchMode ? 'buttons' : 'keys';
+  return { keys: HELP[kind][LI()], notes: HELP.notes[LI()] };
 }
 // ボタンの列を作る(タイトルとメニューで共通)
 function renderList(box, items, sel, onPick) {
@@ -2364,9 +2737,10 @@ function renderList(box, items, sel, onPick) {
 }
 function renderMenu() {
   if (!menuEl || !menuEl.querySelector) return;
-  menuEl.querySelector('.title').textContent = menuMode === 'help' ? 'あそびかた' : menuMode === 'settings' ? 'せってい' : 'メニュー';
+  menuEl.querySelector('.title').textContent = T(menuMode === 'help' ? 'howto' : menuMode === 'settings' ? 'settings' : menuMode === 'submit' ? 'regTitle' : menuMode === 'ranking' ? 'ranking' : 'menu');
   const help = menuEl.querySelector('.help');
   help.innerHTML = '';
+  if (menuMode === 'submit' || menuMode === 'ranking') renderRankArea(help);
   if (menuMode === 'help') {
     const { keys, notes } = helpLines();
     for (const [k, v] of keys) { const r = document.createElement('div'); r.className = 'row'; r.innerHTML = '<span class="k"></span><span class="v"></span>'; r.children[0].textContent = k; r.children[1].textContent = v; help.appendChild(r); }
@@ -2377,7 +2751,8 @@ function renderMenu() {
 function openMenu(mode) {
   if (menuOpen || !menuEl || !menuEl.classList) return;
   menuMode = mode || (titleScreen ? 'settings' : 'game');
-  menuOpen = true; menuSel = 0; menuPaused = paused;
+  menuOpen = true; menuPaused = paused;
+  menuSel = menuMode === 'submit' ? 0 : menuItems().length - 1;   // 最初は、いちばん下の「とじる(つづける)」を選んでおく(うっかりリスタートしないように)。登録は「登録する」
   if (!titleScreen) { paused = true; stopHolds(); }
   menuEl.classList.add('open'); renderMenu();
 }
@@ -2398,7 +2773,7 @@ function listKey(dir) {
   }
 }
 if (menuEl && menuEl.addEventListener) menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) { e.preventDefault(); closeMenu(); } });   // 外側をタップで閉じる
-function restartGame() { reset(); restartBgm(); }
+function restartGame() { clearSave(); reset(); restartBgm(); }
 function toggleBgm() { bgmMuted = !bgmMuted; updateBgm(); if (bgmMuted) stopGameOver(); }
 // 押しっぱなしで連続: 最初の待ち DAS のあと、REPEAT の間隔でくり返す(OS のキーリピートは使わない)
 const REPEAT = { left: 60, right: 60, soft: 45 }, DAS = 120;
@@ -2420,6 +2795,10 @@ const KEY_MAP = {
 };
 addEventListener('keydown', e => {
   const k = e.code, a = KEY_MAP[k];
+  if (e.target && e.target.tagName === 'INPUT') {   // 名前の入力中: Enter で登録、Esc で閉じる。ほかのキーは文字の入力に使う
+    if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); sendScore(); } else if (k === 'Escape') closeMenu();
+    return;
+  }
   if (a || k === 'Space') e.preventDefault();
   startBgm();
   if (k === 'KeyM') { if (!e.repeat) toggleBgm(); return; }
@@ -2450,7 +2829,7 @@ function applyMode() { if (document.body && document.body.classList) { document.
 applyMode();
 
 // 画面のボタン(data-act: 操作 / data-cmd: ポーズ・リスタート・BGM)。左右・下は長押しで連続
-for (const btn of document.querySelectorAll ? document.querySelectorAll('#touch button') : []) {
+for (const btn of document.querySelectorAll ? document.querySelectorAll('#pad button') : []) {
   const a = btn.dataset.act, cmd = btn.dataset.cmd, id = 'b:' + (a || cmd);
   const up = e => { e.preventDefault(); btn.classList.remove('on'); holdStop(id); };
   btn.addEventListener('pointerdown', e => {
@@ -2476,7 +2855,7 @@ function gHoldStart() {   // 画面の下端を押し続けると、1マスず�
   act('soft');
   g.rep = setInterval(() => act('soft'), HOLD_REPEAT_MS);
 }
-const gestureOk = e => touchMode && gMode === 'flick' && !(e.target && e.target.closest && e.target.closest('#touch button, .item, #field, #menu, #title'));
+const gestureOk = e => touchMode && gMode === 'flick' && !(e.target && e.target.closest && e.target.closest('#pad button, .item, #field, #menu, #title'));
 document.addEventListener('touchstart', e => {
   if (!gestureOk(e)) return;
   e.preventDefault();
@@ -2557,12 +2936,17 @@ function pollPad(t) {
 
 // ---- 画面の大きさ ----
 // 上のダンジョンの表示エリアは、下のエリア(盤面と右の欄)の幅に合わせる
+const FIELD_PC_K = 1.5;   // PC では、上のダンジョンの画面を下のエリア(盤面と左の欄)の1.5倍の幅に
 function fitField() {
   const main = document.getElementById('main');
   if (!main || !main.offsetWidth) return;
-  const w = main.offsetWidth - 4;   // キャンバスの枠(左右2pxずつ)を除く
-  FIELD_SCALE = w / FIELD_W;
-  fieldCv.width = w; fieldCv.height = Math.round(FIELD_H * FIELD_SCALE);
+  const w = Math.round(main.offsetWidth * (touchMode ? 1 : FIELD_PC_K)) - 8;   // キャンバスの枠(左右4pxずつ)を除く。PC は下のエリアの1.5倍の幅
+  // 画面での大きさ(CSS)はそのままで、キャンバスの中のドット数は「実際に画面に出る大きさ」に合わせる。
+  // (全体を縮めて表示するぶんと、画面の細かさ devicePixelRatio を入れる。2回拡大縮小すると、ドット絵の顔がゆがむため)
+  const res = wrapScale() * (window.devicePixelRatio || 1);
+  if (fieldCv.style) { fieldCv.style.width = w + 'px'; fieldCv.style.height = Math.round(FIELD_H * w / FIELD_W) + 'px'; }
+  fieldCv.width = Math.round(w * res); fieldCv.height = Math.round(FIELD_H * w / FIELD_W * res);
+  FIELD_SCALE = fieldCv.width / FIELD_W;
   wallTiles = {};                    // 背景は新しい大きさで作り直す
 }
 // 画面に収まらないとき(スマホなど)は、全体を縮めて表示する
@@ -2571,13 +2955,17 @@ function fitScreen() {
   if (!wrap || !wrap.offsetWidth) return;
   wrap.style.transform = ''; wrap.style.margin = '';
   const W = wrap.offsetWidth, H = wrap.offsetHeight;
-  const k = Math.min(1, (innerWidth - 8) / W, (innerHeight - wrap.offsetTop - 8) / H);   // 上の余白(body の padding)も入れて収める
+  const pad = document.getElementById('pad');   // スマホの画面ボタン(下に固定)が出ているときは、そのぶん空ける
+  const padH = pad && pad.offsetHeight ? pad.offsetHeight : 0;
+  const k = Math.min(1, (innerWidth - 8) / W, (innerHeight - wrap.offsetTop - 8 - padH) / H);   // 上の余白(body の padding)も入れて収める
   wrap.style.transformOrigin = 'top center';
   wrap.style.transform = 'scale(' + k + ')';
   // 縮めたぶん、まわりの余白も詰める(横スクロールや、下の空白が出ないように)
   wrap.style.margin = '0 ' + (W * (k - 1) / 2) + 'px ' + (H * (k - 1)) + 'px';
 }
-function fitAll() { fitField(); fitScreen(); fitTitle(); }
+// 全体を縮める倍率(fitScreen で決めたもの)
+function wrapScale() { const w = document.getElementById('wrap'), m = w && w.style && /scale\(([\d.]+)\)/.exec(w.style.transform || ''); return m ? +m[1] : 1; }
+function fitAll() { fitField(); fitScreen(); fitField(); fitTitle(); }   // 2回目の fitField で、縮めた倍率に合わせてキャンバスのドット数を決める
 addEventListener('resize', fitAll);
 addEventListener('orientationchange', fitAll);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
@@ -2590,9 +2978,11 @@ function loop(t) {
   pollPad(t);
   if (titleScreen) { drawTitle(); requestAnimationFrame(loop); return; }   // タイトル画面: ゲームは止めておく
   update(dt);
+  if (!paused && !over && !stageClear) playMs += dt;   // プレイ時間(ランキングの登録に使う)
   if (!paused && !over && !clearing) updateWobble(dt);
   if (!paused && (!over || overReason === 'ending')) { if (!stageClear && !over) updateHatch(dt); updateMonsters(dt); updateEnemies(dt); updateBattle(dt); updateMoonWave(dt); }
-  if (!paused) { updateStage(dt); updateItemFx(dt); }
+  else if (!paused && over && overReason === 'enemy') { for (const u of monsters.concat(enemies)) u.t += dt; }   // 撤退中: もぞもぞ動かすために時間だけ進める
+  if (!paused) { updateStage(dt); updateItemFx(dt); updateCast(dt); }
   updateBossCard();
   watchBgm();
   for (const f of flash) f.t += dt;
@@ -2608,6 +2998,9 @@ for (const [id, fn] of [['potionItem', usePotion], ['moonItem', fireMoon]]) {
   const el = document.getElementById(id);
   if (el && el.addEventListener) el.addEventListener('pointerdown', e => { e.preventDefault(); startBgm(); if (!titleScreen) fn(); });
 }
-fieldCv.addEventListener('pointerdown', () => { if (!titleScreen) openMenu(); });   // 上のダンジョンをタップでメニュー
+fieldCv.addEventListener('pointerdown', () => { if (!titleScreen) openMenu(); });
+const menuBtnEl = document.getElementById('menuBtn');   // PC: 右上の MENU ボタン
+if (menuBtnEl && menuBtnEl.addEventListener) menuBtnEl.addEventListener('click', () => { startBgm(); if (!titleScreen) openMenu(); });   // 上のダンジョンをタップでメニュー
+applyLangHtml();
 showTitle(true);
 requestAnimationFrame(loop);
