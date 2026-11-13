@@ -399,6 +399,8 @@ const SFX = {
   healCharge: [[392, 784, .42, .05], [494, 988, .42, .035, .06]],                       // くすりの「ため」(音が上がっていく)
   moonCharge: [[196, 784, .62, .06], [294, 1175, .62, .04, .08], [147, 147, .6, .05]],  // 月光波の「ため」
   full:   [[1319, 1319, .07, .06], [1760, 1760, .22, .06, .08]],                         // 三日月が満タンになった
+  alarm:  [[1568, 1568, .07, .10], [1175, 1175, .07, .10, .11], [1568, 1568, .07, .10, .26], [1175, 1175, .09, .10, .37]],   // 体力ピンチになった瞬間(ピコンピコン)
+  heart:  [[90, 55, .12, .26], [180, 110, .09, .07], [80, 50, .14, .22, .19], [160, 100, .1, .06, .19]],   // ピンチの間の心臓の鼓動(ドクン、ドクン)
   moon:   [[1568, 523, .55, .09], [2093, 784, .6, .06, .06], [196, 98, .45, .16]],        // 月光波   // 同じモンスターに体力が加わったとき(ピローん)
   clear: n => {
     const notes = [523, 659, 784, 1047, 1319, 1568, 2093], k = Math.min(notes.length, 2 + n), out = [];
@@ -2108,7 +2110,7 @@ function roundRect(g, x, y, w, h, r) {
   g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
-function drawGaugeButton(c, level, inner, edge, shake) {   // inner(g, lit, lineY): 中の絵を描く
+function drawGaugeButton(c, level, inner, edge, shake, lit = BTN.lit) {   // inner(g, lit, lineY): 中の絵を描く / lit: たまっているところの色
   const g = c.getContext('2d'), S = c.width, m = 3, line = Math.round(S - m - level * (S - m * 2));
   g.setTransform(1, 0, 0, 1, shake, 0);
   g.clearRect(-10, 0, S + 20, S);
@@ -2119,7 +2121,7 @@ function drawGaugeButton(c, level, inner, edge, shake) {   // inner(g, lit, line
   if (level > 0) {
     g.save();
     g.beginPath(); g.rect(0, line, S, S - line); g.clip();
-    g.fillStyle = BTN.lit; g.fillRect(0, 0, S, S);
+    g.fillStyle = lit; g.fillRect(0, 0, S, S);
     inner(g, true, line);
     g.restore();
     if (level < 1) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(0, line, S, 2); }   // たまっているところの境目
@@ -2178,6 +2180,16 @@ function drawOrbit(c, t, col) {
   }
   g.restore();
 }
+// くすりのボタンの色(体力バーと同じ段階): 50%より上は 緑と水色 / 50%以下はオレンジ / 25%以下は赤で、暗い赤と明るい赤のあいだを点滅
+function potionColors() {
+  const r = hero.maxHp ? hero.hp / hero.maxHp : 1;
+  if (!titleScreen && !over && hero.hp > 0 && r <= 0.25) {
+    const p = dangerPulse(), m = (a, b) => Math.round(a + (b - a) * p);
+    return [`rgb(${m(110, 255)},${m(0, 40)},${m(0, 40)})`, `rgba(${m(150, 255)},${m(20, 120)},${m(20, 110)},0.8)`];
+  }
+  if (!titleScreen && r <= 0.5) return ['#d86a00', 'rgba(255,175,70,0.78)'];
+  return [BTN.lit, 'rgba(110,215,255,0.75)'];
+}
 function drawItems(t) {
   const mc = itemCanvas('moonItem'), pc = itemCanvas('potionItem');
   const pulse = 0.5 + 0.5 * Math.sin(t / 170);
@@ -2192,8 +2204,9 @@ function drawItems(t) {
     const usable = potion >= 1 && hero.hp < hero.maxHp && !itemsBlocked();   // 使えるときは、ふちが緑に光って知らせる
     const edge = itemFx.potion > 0 ? '#ffffff' : usable ? `rgba(125,255,138,${0.45 + 0.55 * pulse})` : null;
     const shake = itemFx.potionNo > 0 ? Math.round(Math.sin(itemFx.potionNo / 25) * 3) : 0;
-    drawGaugeButton(pc, potion / POTION_MAX, (g, lit, line) => drawBottleInner(g, lit, line, pc.width), edge, shake);
-    if (potion >= POTION_MAX) drawOrbit(pc, t, 'rgba(110,215,255,0.75)');   // 満タン: 水色の正方形が回る(中身の色に合わせる)
+    const [litCol, orbCol] = potionColors();
+    drawGaugeButton(pc, potion / POTION_MAX, (g, lit, line) => drawBottleInner(g, lit, line, pc.width), edge, shake, litCol);
+    if (potion >= POTION_MAX) drawOrbit(pc, t, orbCol);   // 満タン: 正方形が回る
   }
 }
 function heroBox() {
@@ -2215,7 +2228,7 @@ function drawHeroHp(g) {
 function heroDanger() { return !titleScreen && !over && !stageClear && hero.hp > 0 && hero.hp / hero.maxHp <= 0.25; }
 function drawDangerFrame(g) {
   if (!heroDanger()) return;
-  const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(titleT / 450));   // ゆっくり(約2.8秒で1回)
+  const a = 0.35 + 0.55 * dangerPulse();   // 盤面と同じ速さ(1.2秒で1回)
   g.save();
   g.strokeStyle = `rgba(255,40,40,${a * 0.45})`; g.lineWidth = 22; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 内側へのにじみ(縁から 11px)
   g.strokeStyle = `rgba(255,50,50,${a})`; g.lineWidth = 10; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 太めの縁(見えるのは内側の 5px)
@@ -2765,14 +2778,28 @@ function drawPiece(g, name, ox, oy, s, alpha = 1) {
 }
 
 // 体力が赤(25%以下)のとき、盤面でも知らせる: 盤面の枠を赤く点滅させ、盤面の中もうっすら赤く点滅させる
-const DANGER_BOARD_A = 0.1;        // 盤面の中の赤の濃さ(いちばん濃いとき。ブロックが見にくくならないように薄く)
+const DANGER_BOARD_A = 0.2;        // 盤面の中の赤の濃さ(いちばん濃いとき)
+const DANGER_PULSE_MS = 1200;      // 点滅の速さ(1回の時間)。上の画面・盤面・くすりのボタンで同じ
 let dangerBorderOn = false;
-function dangerPulse() { return 0.5 + 0.5 * Math.sin(titleT / 450); }   // 上の画面の赤い縁と同じ速さ(約2.8秒で1回)
+function dangerPulse() { return 0.5 + 0.5 * Math.sin(titleT / DANGER_PULSE_MS * Math.PI * 2); }
+// 体力ピンチの音: 赤になった瞬間にピコンピコン、そのあとは鼓動を 2.4秒ごとに
+const HEART_MS = 2400;
+let dangerWas = false, heartT = 0;
+function dangerSound(dt) {
+  const on = heroDanger();
+  if (on && !dangerWas) { sfx('alarm'); heartT = HEART_MS * 0.6; }
+  else if (on) { heartT -= dt; if (heartT <= 0) { sfx('heart'); heartT = HEART_MS; } }
+  dangerWas = on;
+}
 function drawDangerBoard() {
   const on = heroDanger();
   if (cv.style && (on || dangerBorderOn)) {   // 枠: 白に近いグレー(#d8dbe2) と 赤 のあいだを行き来する
-    if (on) { const p = dangerPulse(), m = (a, b) => Math.round(a + (b - a) * p); cv.style.borderColor = `rgb(${m(216, 255)},${m(219, 50)},${m(226, 50)})`; }
-    else cv.style.borderColor = '';
+    if (on) {
+      const p = dangerPulse(), m = (a, b) => Math.round(a + (b - a) * p);
+      cv.style.borderColor = `rgb(${m(216, 255)},${m(219, 50)},${m(226, 50)})`;
+      // 枠を太く見せる: 枠の外に赤い線と光を重ねる(枠の太さそのものは変えないので、盤面の位置はずれない)
+      cv.style.boxShadow = `0 0 0 ${(3 + 3 * p).toFixed(1)}px rgba(255,50,50,${(0.45 + 0.5 * p).toFixed(2)}), 0 0 ${Math.round(10 + 14 * p)}px ${Math.round(4 + 6 * p)}px rgba(255,30,30,${(0.35 + 0.4 * p).toFixed(2)})`;
+    } else { cv.style.borderColor = ''; cv.style.boxShadow = ''; }
     dangerBorderOn = on;
   }
   if (on) { ctx.fillStyle = `rgba(255,40,40,${DANGER_BOARD_A * dangerPulse()})`; ctx.fillRect(0, 0, BW, BH); }
@@ -3253,7 +3280,7 @@ function loop(t) {
   if (!paused && !over && !clearing) updateWobble(dt);
   if (!paused && (!over || overReason === 'ending')) { if (!stageClear && !over) updateHatch(dt); updateMonsters(dt); updateEnemies(dt); updateBattle(dt); updateMoonWave(dt); }
   else if (!paused && over && overReason === 'enemy') { for (const u of monsters.concat(enemies)) u.t += dt; }   // 撤退中: もぞもぞ動かすために時間だけ進める
-  if (!paused) { updateStage(dt); updateItemFx(dt); updateCast(dt); }
+  if (!paused) { updateStage(dt); updateItemFx(dt); updateCast(dt); dangerSound(dt); }
   updateBossCard();
   watchBgm();
   for (const f of flash) f.t += dt;
