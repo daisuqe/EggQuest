@@ -2113,6 +2113,18 @@ function drawDangerFrame(g) {
   g.strokeStyle = `rgba(255,50,50,${a})`; g.lineWidth = 10; g.strokeRect(0, 0, FIELD_W, FIELD_H);   // 太めの縁(見えるのは内側の 5px)
   g.restore();
 }
+// スマホ: 上の画面の右上に、一時停止のマーク(縦の2本線)を半透明(50%)で出す。上の画面をタップすると止まる(メニュー)ことを知らせる
+function drawPauseHint(g) {
+  if (!touchMode || titleScreen) return;
+  const w = 5, h = 18, gap = 5, x = FIELD_W - 10 - (w * 2 + gap), y = 8;
+  g.save();
+  g.globalAlpha = 0.5;
+  g.fillStyle = 'rgba(0,0,0,0.7)';   // うすい黒のふち(明るい背景でも見えるように)
+  g.fillRect(x - 1.5, y - 1.5, w + 3, h + 3); g.fillRect(x + w + gap - 1.5, y - 1.5, w + 3, h + 3);
+  g.fillStyle = '#ffffff';
+  g.fillRect(x, y, w, h); g.fillRect(x + w + gap, y, w, h);
+  g.restore();
+}
 function drawHero(g) {
   const pose = heroPose(), img = HERO_IMG[pose];
   if (!img.complete || !img.naturalWidth) return;
@@ -2602,6 +2614,7 @@ function drawField() {
   drawCast(g);
   drawDangerFrame(g);
   drawHeroHp(g);
+  drawPauseHint(g);
   drawStageText(g);
   g.setTransform(1, 0, 0, 1, 0, 0);
 }
