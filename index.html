@@ -37,7 +37,7 @@
   #boss .row { font-size:16px; margin:2px 0; }
   #boss .attr { display:inline-block; padding:0 3px; color:#111; border-radius:3px; }
   #boss.none { visibility:hidden; }   /* 敵がいないときは、カードを出さない(場所はそのまま空けておく) */
-  /* アイテム(月の杖・くすりの瓶): ボスのカードの下。タップで使う */
+  /* アイテム(月の杖・ポーションの瓶): ボスのカードの下。タップで使う */
   #items { width:200px; display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:2px; }
   #items .slot { position:relative; }
   #items canvas.item { display:block; background:none; border:none; cursor:pointer; touch-action:none; }
@@ -172,7 +172,7 @@
       <div class="row"><span data-i18n="cHp">体力:</span><span id="bossHp"></span></div>
       <div class="row"><span data-i18n="cAtk">攻撃力:</span><span id="bossAtk"></span></div>
     </div>
-    <!-- ルネリアのアイテム: 月の杖(満タンでタップ=月光波)と、くすりの瓶(タップ=体力回復) -->
+    <!-- ルネリアのアイテム: 月の杖(満タンでタップ=月光波)と、ポーションの瓶(タップ=体力回復) -->
     <div id="items">
       <div class="slot"><canvas id="moonItem" class="item" width="196" height="196"></canvas><div class="key">V / Enter</div></div>
       <div class="slot"><canvas id="potionItem" class="item" width="196" height="196"></canvas><div class="key">C / +</div></div>

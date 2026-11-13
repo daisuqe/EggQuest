@@ -50,7 +50,7 @@ const STR = {
   menu:       ['メニュー', 'MENU', '菜单', '메뉴'],
   confirm:    ['かくにん', 'CONFIRM', '确认', '확인'],
   cancel:     ['やめる', 'CANCEL', '取消', '취소'],
-  qToTitle:   ['今のゲームを終わらせて、タイトルにもどりますか?(途中までのデータは消えます)', 'End the current game and return to the title? (Your progress will be lost.)', '要结束当前游戏并返回标题吗?(进度将会丢失)', '지금 게임을 끝내고 타이틀로 돌아갈까요? (진행 상황이 지워집니다)'],
+  qToTitle:   ['今のゲームを終わらせて、タイトルにもどりますか?', 'End the current game and return to the title?', '要结束当前游戏并返回标题吗?', '지금 게임을 끝내고 타이틀로 돌아갈까요?'],
   qRestart:   ['今のゲームを終わらせて、最初からやり直しますか?', 'End the current game and start over?', '要结束当前游戏并重新开始吗?', '지금 게임을 끝내고 처음부터 다시 할까요?'],
   qNewGame:   ['途中までのデータが消えます。最初から始めますか?(「つづきから」はできなくなります)', 'Your saved progress will be deleted. Start a new game? (You will not be able to continue.)', '中途存档将被删除。要从头开始吗?(将无法继续游戏)', '이어하기 데이터가 지워집니다. 처음부터 시작할까요? (이어하기를 할 수 없게 됩니다)'],
   hControls:  ['操作', 'Controls', '操作', '조작'],
@@ -64,7 +64,7 @@ const STR = {
   on:         ['オン', 'ON', '开', '켬'],
   off:        ['オフ', 'OFF', '关', '끔'],
   controls:   ['そうさ: ', 'CONTROLS: ', '操作: ', '조작: '],
-  autoPot:    ['自動くすり: ', 'AUTO POTION: ', '自动药水: ', '자동 물약: '],
+  autoPot:    ['自動ポーション: ', 'AUTO POTION: ', '自动药水: ', '자동 물약: '],
   flick:      ['フリック', 'FLICK', '滑动', '플릭'],
   buttons:    ['ボタン', 'BUTTONS', '按钮', '버튼'],
   language:   ['Language: ', 'Language: ', 'Language: ', 'Language: '],   // どの言語でも英語(読めない言語になっても、戻し方がわかるように)
@@ -102,7 +102,7 @@ const ATTR_NAME = {
 const HELP = {
   flick: [
     [['横にドラッグ', '移動'], ['画面の左側 / 右側をタップ', '左回転 / 右回転'], ['画面の下2割をタップ', '1マス落とす(長押しで連続)'], ['下へはじく', 'すぐ落とす'], ['上へはじく', 'NEXTと入れかえ'],
-     ['瓶のボタン', 'くすり(体力回復)'], ['月のボタン', '月光波'], ['上の画面をタップ', 'メニュー(一時停止)']],
+     ['瓶のボタン', 'ポーション(体力回復)'], ['月のボタン', '月光波'], ['上の画面をタップ', 'メニュー(一時停止)']],
     [['Drag sideways', 'Move'], ['Tap left / right', 'Rotate'], ['Tap the bottom 20%', 'Drop 1 row (hold to repeat)'], ['Flick down', 'Hard drop'], ['Flick up', 'Swap with NEXT'],
      ['Bottle button', 'Potion (heal)'], ['Moon button', 'Moon wave'], ['Tap the top screen', 'Menu']],
     [['左右拖动', '移动'], ['点击左侧 / 右侧', '旋转'], ['点击下方两成', '下落1格(长按连续)'], ['向下轻扫', '直接落下'], ['向上轻扫', '与NEXT交换'],
@@ -111,13 +111,13 @@ const HELP = {
      ['병 버튼', '물약(회복)'], ['달 버튼', '월광파'], ['위쪽 화면 탭', '메뉴']],
   ],
   buttons: [
-    [['画面下のボタン', '移動・回転・落とす'], ['NEXTをタップ', 'NEXTと入れかえ'], ['瓶のボタン', 'くすり(体力回復)'], ['月のボタン', '月光波'], ['上の画面をタップ', 'メニュー(一時停止)']],
+    [['画面下のボタン', '移動・回転・落とす'], ['NEXTをタップ', 'NEXTと入れかえ'], ['瓶のボタン', 'ポーション(体力回復)'], ['月のボタン', '月光波'], ['上の画面をタップ', 'メニュー(一時停止)']],
     [['On-screen buttons', 'Move / rotate / drop'], ['Tap NEXT', 'Swap with NEXT'], ['Bottle button', 'Potion (heal)'], ['Moon button', 'Moon wave'], ['Tap the top screen', 'Menu']],
     [['画面按钮', '移动・旋转・落下'], ['点击NEXT', '与NEXT交换'], ['药瓶按钮', '药水(回复)'], ['月亮按钮', '月光波'], ['点击上方画面', '菜单']],
     [['화면 버튼', '이동・회전・내리기'], ['NEXT 탭', 'NEXT와 교체'], ['병 버튼', '물약(회복)'], ['달 버튼', '월광파'], ['위쪽 화면 탭', '메뉴']],
   ],
   keys: [
-    [['← →', '移動'], ['↑ / X / Z', '回転'], ['↓', '1マス落とす'], ['SPACE', 'すぐ落とす'], ['SHIFT / A / テンキー 7・8・9', 'NEXTと入れかえ'], ['C / テンキー +', 'くすり(体力回復)'],
+    [['← →', '移動'], ['↑ / X / Z', '回転'], ['↓', '1マス落とす'], ['SPACE', 'すぐ落とす'], ['SHIFT / A / テンキー 7・8・9', 'NEXTと入れかえ'], ['C / テンキー +', 'ポーション(体力回復)'],
      ['V / テンキー ENTER', '月光波'], ['ESC', 'メニュー'], ['P', 'ポーズ'], ['M', 'BGM オン/オフ'], ['R', 'リスタート']],
     [['← →', 'Move'], ['↑ / X / Z', 'Rotate'], ['↓', 'Drop 1 row'], ['SPACE', 'Hard drop'], ['SHIFT / A / Numpad 7 8 9', 'Swap with NEXT'], ['C / Numpad +', 'Potion (heal)'],
      ['V / Numpad ENTER', 'Moon wave'], ['ESC', 'Menu'], ['P', 'Pause'], ['M', 'BGM on/off'], ['R', 'Restart']],
@@ -127,7 +127,7 @@ const HELP = {
      ['V / 숫자패드 ENTER', '월광파'], ['ESC', '메뉴'], ['P', '일시정지'], ['M', 'BGM 켜기/끄기'], ['R', '다시 시작']],
   ],
   notes: [
-    ['ミノについている卵の上に、別のミノの卵を重ねると「水玉の卵」になります。', '水玉の卵がある横の列を消すと、卵からモンスターが生まれて、敵と戦います。', 'ラインを消すと、くすり(体力回復)と月光波(敵全体への攻撃)がたまります。', '敵がルネリアのところまで来るか、ルネリアの体力が0になると負けです。ブロックが一番上まで積み上がっても負けです。', 'ボスを倒すとステージクリア。全7ステージです。'],
+    ['ミノについている卵の上に、別のミノの卵を重ねると「水玉の卵」になります。', '水玉の卵がある横の列を消すと、卵からモンスターが生まれて、敵と戦います。', 'ラインを消すと、ポーション(体力回復)と月光波(敵全体への攻撃)がたまります。', '敵がルネリアのところまで来るか、ルネリアの体力が0になると負けです。ブロックが一番上まで積み上がっても負けです。', 'ボスを倒すとステージクリア。全7ステージです。'],
     ['Drop a piece so its egg lands on another egg to make a polka-dot egg.', 'Clear a row with polka-dot eggs and monsters hatch to fight the enemies.', 'Clearing lines fills the potion (heal) and the moon wave (hits all enemies).', 'You lose if an enemy reaches Luneria, her HP hits 0, or the blocks reach the top.', 'Defeat the boss to clear the stage. There are 7 stages.'],
     ['把方块上的蛋叠在另一个蛋上,就会变成"水玉蛋"。', '消除有水玉蛋的横行,蛋会孵出怪物,和敌人战斗。', '消行会积攒药水(回复体力)和月光波(攻击全部敌人)。', '敌人走到露内莉亚身边、她的体力变为0、或方块堆到顶时,游戏失败。', '打倒首领即可过关,共7关。'],
     ['블록의 알 위에 다른 블록의 알을 겹치면 "물방울 알"이 됩니다.', '물방울 알이 있는 줄을 지우면 알에서 몬스터가 태어나 적과 싸워요.', '줄을 지우면 물약(체력 회복)과 월광파(적 전체 공격)가 모여요.', '적이 루네리아에게 닿거나, 체력이 0이 되거나, 블록이 맨 위까지 쌓이면 패배예요.', '보스를 쓰러뜨리면 스테이지 클리어. 모두 7스테이지입니다.'],

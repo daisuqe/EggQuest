@@ -280,7 +280,7 @@ function updateClear(dt) {
   if (!c.burst && p >= BURST) { // 行のブロックを粒にして中心から外へ飛ばす
     c.burst = true;
     hatchEggs(c.eggPos);
-    gainItems(n);   // くすりの瓶・三日月に溜まる
+    gainItems(n);   // ポーションの瓶・三日月に溜まる
     // 紙ふぶき(めでたい!): 得点の文字のまわりから、色とりどりに舞い上がって落ちる
     const cols = ['#ffe27a', '#ff7a8a', '#7ad8ff', '#9aff8a', '#d89aff', '#ffffff', '#ffb04a'];
     const cy = clearTextY(c), cnt = 30 + 12 * Math.min(6, c.n);
@@ -395,8 +395,8 @@ const SFX = {
   touch:  [[165, 110, .13, .16]],
   land:   [[131, 73, .22, .20], [262, 147, .10, .04]],
   merge:  [[660, 1320, .12, .08], [990, 1980, .16, .07, .09]],
-  heal:   [[523, 784, .14, .08], [659, 1047, .18, .07, .09], [784, 1319, .26, .06, .18]],   // くすりで回復
-  healCharge: [[392, 784, .42, .05], [494, 988, .42, .035, .06]],                       // くすりの「ため」(音が上がっていく)
+  heal:   [[523, 784, .14, .08], [659, 1047, .18, .07, .09], [784, 1319, .26, .06, .18]],   // ポーションで回復
+  healCharge: [[392, 784, .42, .05], [494, 988, .42, .035, .06]],                       // ポーションの「ため」(音が上がっていく)
   moonCharge: [[196, 784, .62, .06], [294, 1175, .62, .04, .08], [147, 147, .6, .05]],  // 月光波の「ため」
   full:   [[1319, 1319, .07, .06], [1760, 1760, .22, .06, .08]],                         // 三日月が満タンになった
   alarm:  [[1568, 1568, .07, .10], [1175, 1175, .07, .10, .11], [1568, 1568, .07, .10, .26], [1175, 1175, .09, .10, .37]],   // 体力ピンチになった瞬間(ピコンピコン)
@@ -1868,8 +1868,8 @@ const HERO_HP = 600;
 const HERO_HURT_MS = 450;         // 攻撃を受けたときの、ダメージの絵を見せる時間
 let hero = { hero: true, hp: HERO_HP, maxHp: HERO_HP, shown: false, hurt: 0 };
 
-// ---- ルネリアのアイテム: くすりの瓶(体力回復)と、月の杖(月光波) ----
-// ライン消しで、まず瓶にくすりが溜まる。瓶が満タンのときは、あふれたぶんが杖の先の三日月に溜まる。
+// ---- ルネリアのアイテム: ポーションの瓶(体力回復)と、月の杖(月光波) ----
+// ライン消しで、まず瓶にポーションが溜まる。瓶が満タンのときは、あふれたぶんが杖の先の三日月に溜まる。
 // 瓶: いつでもタップで回復(足りないぶんだけ使い、残りは瓶に残る)。
 // 三日月: いつでもタップで月光波(溜まっているぶんを全部使う。溜まった割合だけ、大きく強くなる)
 const POTION_MAX = 300;                    // 瓶に入る量(回復できる体力)
@@ -1905,7 +1905,7 @@ function usePotion() {
     sfx('heal');
   });
 }
-// 自動くすり(設定。はじめはオン): 体力が赤(25%以下)になったら、くすりがあれば自動で使う
+// 自動ポーション(設定。はじめはオン): 体力が赤(25%以下)になったら、ポーションがあれば自動で使う
 let autoPotion = (() => { try { return localStorage.getItem('eq_autopot') !== '0'; } catch (e) { return true; } })();
 function toggleAutoPotion() { autoPotion = !autoPotion; try { localStorage.setItem('eq_autopot', autoPotion ? '1' : '0'); } catch (e) {} }
 function autoPotionCheck() { if (autoPotion && heroDanger() && !itemsBlocked() && potionNeed() > 0) usePotion(); }
@@ -1921,7 +1921,7 @@ function fireMoon() {
   });
 }
 // ---- アイテムを使うときの「ため」と、派手めのエフェクト ----
-// くすり: ルネリアのまわりから緑の光の粒が集まって(ため)→ 光の柱と輪がぱっと広がって回復
+// ポーション: ルネリアのまわりから緑の光の粒が集まって(ため)→ 光の柱と輪がぱっと広がって回復
 // 月光波: 杖の先に金色の光の玉がふくらみ、まわりが少し暗くなる(ため)→ 白く光って月光波が飛び出す
 const CAST_MS = { heal: 450, moon: 650 };   // ための長さ(ミリ秒)
 const HERO_TIP_Y = 10;                      // fight2 の絵の中の、杖の先(三日月)の縦の位置
@@ -2103,7 +2103,7 @@ function drawMoonWave(g) {   // 三日月の形の光が、右へ飛んでいく
 
 // アイテムのボタン(右の欄)
 function itemCanvas(id) { const c = document.getElementById(id); return c && c.getContext && c.width ? c : null; }
-// くすりの瓶: ボタンの中に瓶のドット絵(32x32)。重ねる順: bin_back.png(ガラス) → bin_in.png(中身) → bin_front.png(つや)
+// ポーションの瓶: ボタンの中に瓶のドット絵(32x32)。重ねる順: bin_back.png(ガラス) → bin_in.png(中身) → bin_front.png(つや)
 // 中身の絵は満タンの形(9割まで)。ゲージの高さより下の部分だけ描く
 const BIN_BACK = loadImg('image/bin_back.png'), BIN_IN = loadImg('image/bin_in.png'), BIN_FRONT = loadImg('image/bin_front.png');
 const ITEM_PX = 32, ITEM_DOT = 5;                 // 絵の大きさ(px) / 1ドットの大きさ(画面の px。ドットのまま拡大)
@@ -2184,7 +2184,7 @@ function drawOrbit(c, t, col) {
   }
   g.restore();
 }
-// くすりのボタンの色(体力バーと同じ段階): 50%より上は 緑と水色 / 50%以下はオレンジ / 25%以下は赤で、暗い赤と明るい赤のあいだを点滅
+// ポーションのボタンの色(体力バーと同じ段階): 50%より上は 緑と水色 / 50%以下はオレンジ / 25%以下は赤で、暗い赤と明るい赤のあいだを点滅
 function potionColors() {
   const r = hero.maxHp ? hero.hp / hero.maxHp : 1;
   if (!titleScreen && !over && hero.hp > 0 && r <= 0.25) {
@@ -2783,7 +2783,7 @@ function drawPiece(g, name, ox, oy, s, alpha = 1) {
 
 // 体力が赤(25%以下)のとき、盤面でも知らせる: 盤面の枠を赤く点滅させ、盤面の中もうっすら赤く点滅させる
 const DANGER_BOARD_A = 0.2;        // 盤面の中の赤の濃さ(いちばん濃いとき)
-const DANGER_PULSE_MS = 1200;      // 点滅の速さ(1回の時間)。上の画面・盤面・くすりのボタンで同じ
+const DANGER_PULSE_MS = 1200;      // 点滅の速さ(1回の時間)。上の画面・盤面・ポーションのボタンで同じ
 let dangerBorderOn = false;
 function dangerPulse() { return 0.5 + 0.5 * Math.sin(titleT / DANGER_PULSE_MS * Math.PI * 2); }
 // 体力ピンチの音: 赤になった瞬間にピコンピコン、そのあとは鼓動を 2.4秒ごとに
@@ -3109,7 +3109,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (k === 'KeyR') { if (!e.repeat) { if (over) restartGame(); else { openMenu(); askRestart(); } } return; }   // 遊んでいる途中は確認する
-  if (k === 'KeyC' || k === 'NumpadAdd') { if (!e.repeat) usePotion(); return; }   // くすりの瓶(C / テンキーの +)
+  if (k === 'KeyC' || k === 'NumpadAdd') { if (!e.repeat) usePotion(); return; }   // ポーションの瓶(C / テンキーの +)
   if (k === 'KeyV' || k === 'NumpadEnter') { if (!e.repeat) fireMoon(); return; }   // 月光波(V / テンキーの Enter)
   if (k === 'KeyP') { if (!e.repeat) togglePause(); return; }
   if (!a || e.repeat) return;
@@ -3200,7 +3200,7 @@ document.addEventListener('touchend', e => {
 document.addEventListener('touchcancel', () => { gHoldStop(); g = null; });
 
 // ---- ジョイパッド(標準の配置): 十字キー・スティック=移動 / 下=1マス下げる / 上・RT=ハードドロップ /
-// A=右回転 / B・X=左回転 / LT=NEXT と入れかえ / Y・LB=くすり / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
+// A=右回転 / B・X=左回転 / LT=NEXT と入れかえ / Y・LB=ポーション / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
 const PAD_MAP = { 6: 'swap', 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm', 3: 'potion', 4: 'potion', 5: 'moon' };
 const padPrev = {}, padNext = {};
 function pollPad(t) {
@@ -3296,7 +3296,7 @@ function loop(t) {
   requestAnimationFrame(loop);
 }
 reset();
-// 右の欄のアイコン: タップ(クリック)で、くすりを使う・月光波を撃つ
+// 右の欄のアイコン: タップ(クリック)で、ポーションを使う・月光波を撃つ
 for (const [id, fn] of [['potionItem', usePotion], ['moonItem', fireMoon]]) {
   const el = document.getElementById(id);
   if (el && el.addEventListener) el.addEventListener('pointerdown', e => { e.preventDefault(); startBgm(); if (!titleScreen) fn(); });
