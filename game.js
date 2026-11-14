@@ -1089,10 +1089,11 @@ const MON_GROW = 1.2;       // 同じモンスターが加わるたびに大き�
 const MON_GROW_MAX = 1.8;   // 大きくなる上限(元の大きさに対する倍率)
 // ---- ずかん: 出会ったモンスター(味方・敵)と、ステージをクリアした回数(ルネリアのカードの開封)を端末に覚えておく ----
 const ZUKAN_KEY = 'eq_zukan';
-const zukan = (() => { try { const d = JSON.parse(localStorage.getItem(ZUKAN_KEY) || 'null'); if (d && d.m && d.e) return d; } catch (e) {} return { m: {}, e: {}, clears: 0 }; })();
+const zukan = (() => { try { const d = JSON.parse(localStorage.getItem(ZUKAN_KEY) || 'null'); if (d && d.m && d.e) return d; } catch (e) {} return { m: {}, e: {}, allClears: 0 }; })();
 function saveZukan() { try { localStorage.setItem(ZUKAN_KEY, JSON.stringify(zukan)); } catch (e) {} }
 function zukanSee(kind, key) { if (!zukan[kind][key]) { zukan[kind][key] = 1; saveZukan(); } }
-function zukanClear() { zukan.clears = (zukan.clears || 0) + 1; saveZukan(); }
+// 全クリアした回数(ルネリアのカード: 1回でスタンダード、2回でファイト、3回で笑顔)。前の「ステージをクリアした回数(clears)」は使わない
+function zukanClear() { zukan.allClears = (zukan.allClears || 0) + 1; saveZukan(); }
 function spawnMonsters(keys, batchN = keys.length) {
   // まとめて発生させたモンスター(batchN 体)は、全員の攻撃力が (n-1) x 10% 上がる
   const atkMul = 1 + (batchN - 1) * 0.1;
@@ -1644,7 +1645,7 @@ function isFinalStage() { return stage >= STAGE_ORDER.length; }
 const ENDING_BONUS = 10000;       // ラスボスを倒したときのボーナス
 function startEnding() {          // ラスボスを倒した: 戦場を一掃してエンディング
   over = true; overReason = 'ending'; cur = null; stopHolds();
-  zukanClear();   // 最終ステージのクリアも1回に数える
+  zukanClear();   // 全クリアした: ルネリアのカードが1枚開く
   store.set('eq_hard', '1');   // 全クリアした: 次から「むずかしい」を選べる
   const bonus = ENDING_BONUS;
   score += bonus; updateHud();
@@ -1697,7 +1698,6 @@ function openDoor() {               // 扉が開いた: ステージクリア。
   if (door.open) return;
   door.open = true; door.openT = 0;
   stageClear = true; stageClearT = DOOR_OPEN_MS + CLEAR_SHOW_MS;
-  zukanClear();
   const bonus = STAGE_BONUS * stage;
   score += bonus; updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: stageClearT, size: 16, still: true });
@@ -3043,7 +3043,7 @@ function renderList(box, items, sel, onPick) {
   });
 }
 // ---- ずかんの画面 ----
-// ルネリアのカード(3枚)。ステージを1回クリアでスタンダード、2回でファイト、3回で笑顔。
+// ルネリアのカード(3枚)。全クリア1回でスタンダード、2回でファイト、3回で笑顔。
 // 絵は data/card1..3.bin(PNG に、かんたんな XOR をかけたもの)。読み込んでからもとに戻して表示する
 const CARD_N = 3, CARD_KEY = 'EggQuest-Luneria';
 const cardUrls = [];
@@ -3063,7 +3063,7 @@ function closeCard() { if (cardViewEl && cardViewEl.classList) cardViewEl.classL
 if (cardViewEl && cardViewEl.addEventListener) cardViewEl.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); closeCard(); });
 function renderZukan(box) {
   const add = (tag, cls, text, parent = box) => { const d = document.createElement(tag); if (cls) d.className = cls; if (text != null) d.textContent = text; parent.appendChild(d); return d; };
-  const open = Math.min(CARD_N, zukan.clears || 0);
+  const open = Math.min(CARD_N, zukan.allClears || 0);
   if (open) {   // 1枚も開いていないときは、カードの欄そのものを出さない
   add('div', 'h', T('zCards') + ' ' + open + '/' + CARD_N);
   const cards = add('div', 'zk-cards');
@@ -3090,6 +3090,13 @@ function renderZukan(box) {
         const boss = !ZAKO[k], p = stats(k);
         const en = boss ? (BOSS_NAME[k] || [k])[0] : p.en, kana = boss ? (BOSS_NAME[k] || [])[1] : p.ja;
         add('div', 'zk-name' + (boss ? ' boss' : ''), lang === 'ja' && kana ? kana : en, cell);
+        if (boss) {   // ボス: 属性と弱点(ボスのカードと同じ見方)
+          const attr = ATTR[k[0]], weak = Object.keys(TYPE_CHART).filter(x => TYPE_CHART[x][attr] === 2);
+          add('div', 'zk-attr', null, cell).innerHTML = attrChip(attr);
+          const w = add('div', 'zk-attr', null, cell);
+          w.innerHTML = '<span class="zk-wl"></span>' + (weak.length ? weak.map(attrChip).join(' ') : escHtml(T('none')));
+          w.firstChild.textContent = T('cWeak');
+        }
       }
     }
   };
@@ -3108,6 +3115,7 @@ function renderMenu() {
   if (menuMode === 'config') renderConfig(help);
   if (menuMode === 'diff') { const m = document.createElement('div'); m.className = 'confirm'; m.textContent = T('diffMsg'); help.appendChild(m); }
   if (menuMode === 'license') { const d = document.createElement('div'); d.className = 'lic'; d.textContent = LICENSE_TEXT; help.appendChild(d); }   // あそびかた・ずかんは、読みやすい普通の書体で
+  help.classList.toggle('zk', menuMode === 'zukan');   // ずかんは、中身が少なくても同じ幅で
   if (menuMode === 'zukan') renderZukan(help);
   if (menuMode === 'help') {
     const { keys, notes } = helpLines();

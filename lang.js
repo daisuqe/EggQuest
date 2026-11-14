@@ -32,7 +32,7 @@ const STR = {
   rankShowNormal: ['ふつうを見る', 'SHOW NORMAL', '查看普通', '보통 보기'],
   zukan:      ['ずかん', 'BESTIARY', '图鉴', '도감'],
   zCards:     ['ルネリアのカード', 'Luneria Cards', '露内莉亚卡片', '루네리아 카드'],
-  zLocked:    ['ステージを{n}回クリアで開封', 'Clear stages {n} time(s) to unlock', '过关{n}次后解锁', '스테이지를 {n}번 클리어하면 열림'],
+  zLocked:    ['全クリア{n}回で開封', 'Clear the whole game {n} time(s) to unlock', '全部通关{n}次后解锁', '모두 클리어 {n}번으로 열림'],
   zAllies:    ['なかま', 'Allies', '伙伴', '동료'],
   zEnemies:   ['てき', 'Enemies', '敌人', '적'],
   zNone:      ['まだ出会っていません', 'None met yet', '还没有遇到', '아직 만나지 못했어요'],
