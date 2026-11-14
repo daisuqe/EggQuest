@@ -1,7 +1,15 @@
 <!DOCTYPE html>
+<!--
+  EGG QUEST
+  © 2026 daisuqe. All rights reserved.
+  本ゲームの著作権は daisuqe が保有します。無断での複製・改変・再配布・転載を禁じます。詳しくは LICENSE を見てください。
+  All rights reserved. Copying, modifying, redistributing, or reposting without permission is prohibited. See LICENSE for details.
+-->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<meta name="author" content="daisuqe">
+<meta name="copyright" content="Copyright (c) 2026 daisuqe. All rights reserved.">
 <title>EGG QUEST</title>
 <!-- アイコン: 1枚(180x180、約1KB)で、ブラウザのタブ(favicon)と iPhone のホーム画面の両方に使う -->
 <link rel="icon" type="image/png" href="icon.png">
@@ -141,6 +149,53 @@
                   border:2px solid #4a5062; border-radius:12px; cursor:pointer; touch-action:none; }
   #title button.sel { border-color:#ffe27a; color:#fff; background:#30344a; }
   #title .hint { font-size:16px; color:#8890a0; }
+  /* タイトルの右上: アプリ一覧へのボタン(16x16 のドット絵を 32px に。背景・枠なし) */
+  #title #appsBtn { position:absolute; top:max(14px, env(safe-area-inset-top)); right:max(14px, env(safe-area-inset-right)); z-index:1;
+                    width:32px; height:32px; padding:0; margin:0; background:none; border:none; border-radius:4px; opacity:.7; cursor:pointer;
+                    touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  #title #appsBtn:hover { opacity:1; }
+  /* タイトルの一番下: 著作権の表示(小さく薄く)。押すと License の画面 */
+  #title #copyBtn { position:absolute; left:50%; transform:translateX(-50%); bottom:max(6px, env(safe-area-inset-bottom)); z-index:1; white-space:nowrap; height:auto; min-width:0;
+                    padding:2px 6px; margin:0; background:none; border:none; border-radius:4px; cursor:pointer; touch-action:manipulation;
+                    font-family:system-ui, -apple-system, 'Hiragino Sans', 'Yu Gothic UI', Meiryo, sans-serif; font-size:11px; line-height:14px;
+                    color:rgba(221,221,238,.42); -webkit-tap-highlight-color:transparent; }
+  #title #copyBtn:hover { color:rgba(221,221,238,.75); }
+  #title #copyBtn:focus-visible { outline:2px solid #fff; outline-offset:1px; color:rgba(221,221,238,.9); }
+  /* 高さの低い画面(横向きの小さい画面など): タイトルのボタンを少し詰めて、著作権の表示と重ならないように */
+  @media (max-height: 520px) {
+    #title { gap:8px; }
+    #title .list { gap:8px; }
+    #title .list button { height:40px; font-size:24px; }
+  }
+  /* キー・コントローラー設定(PC だけ) */
+  #menu .help.doc .crow { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:4px 0; }
+  #menu .help.doc .crow .cl { color:#dde; }
+  #menu .cfg-slots { display:flex; gap:6px; flex:none; }
+  #menu .cfg-slot, #menu .cfg-def { font-family:system-ui, -apple-system, 'Hiragino Sans', 'Yu Gothic UI', Meiryo, sans-serif; font-size:13px; color:#d3d8e0;
+                                    background:#262a36; border:2px solid #4a5062; border-radius:8px; height:30px; cursor:pointer; padding:0 6px; white-space:nowrap; }
+  #menu .cfg-slot { width:118px; overflow:hidden; text-overflow:ellipsis; }
+  #menu .cfg-slot.cap { background:#2f6dff; color:#fff; border-color:#8fb2ff; }
+  #menu .help button.sel { border-color:#ffe27a; color:#fff; }
+  #menu .cdef { display:flex; justify-content:flex-end; margin:6px 0 0; }
+  #menu .cfg-note { margin:4px 0 0; font-size:12px; line-height:1.5; color:#9fb0cc; }
+  #menu .cfg-note.warn { color:#ffb86b; }
+  #menu .rstat .rhard { color:#ff5a5a; }   /* 登録画面: むずかしいの印 */
+  /* むずかしいで遊んでいるときの印(STAGE の横) */
+  #hardMark { color:#ff5a5a; font-size:16px; vertical-align:middle; }
+  /* License の文章 */
+  #menu .help.doc .lic { white-space:pre-wrap; font-size:13px; line-height:1.7; color:#dde; }
+  #title #appsBtn:focus-visible { outline:2px solid #fff; outline-offset:3px; opacity:1; }
+  #title #appsBtn canvas { display:block; width:32px; height:32px; image-rendering:pixelated; image-rendering:crisp-edges; }
+  /* アプリ一覧へ移動する確認 */
+  #appsDlg { display:none; position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.5); align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }
+  #appsDlg.open { display:flex; }
+  #appsDlg .panel { width:min(380px, 100%); box-sizing:border-box; padding:20px 18px 18px; background:rgba(10,12,17,.9); border:1px solid #4a5570; border-radius:10px;
+                    color:#d6dae2; text-align:center; }
+  #appsDlg .msg { white-space:pre-line; font-family:system-ui, -apple-system, 'Hiragino Sans', 'Yu Gothic UI', Meiryo, sans-serif; font-size:16px; line-height:1.7; margin-bottom:16px; }
+  #appsDlg .btns { display:flex; justify-content:center; gap:14px; }
+  #appsDlg .btns button { width:110px; height:36px; box-sizing:border-box; padding:0; font-family:var(--font); font-size:20px; color:#dde; background:#262a36;
+                          border:2px solid #4a5062; border-radius:10px; cursor:pointer; outline:none; }
+  #appsDlg .btns button.sel { border-color:#ffe27a; color:#fff; background:#30344a; }
   body.touchdev #title .hint { display:none; }
   #rotate { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:#14161c;
             font-size:16px; text-align:center; line-height:2; z-index:10; }
@@ -159,7 +214,7 @@
   <div id="main">
   <canvas id="board" width="300" height="600"></canvas>
   <div id="side">
-    <div class="stat">STAGE <b id="stage">1</b></div>
+    <div class="stat">STAGE <b id="stage">1</b> <span id="hardMark" style="display:none">HARD</span></div>
     <div class="stat">SCORE<br><b id="score">0</b></div>
     <div class="label">NEXT</div>
     <canvas id="next" width="192" height="192"></canvas>
@@ -195,9 +250,10 @@
 </div>
 <!-- 設定メニュー(上のダンジョンをタップ / Esc / パッドの START で開く) -->
 <div id="menu"><div class="panel"><div class="title" data-i18n="menu">メニュー</div><div class="help"></div><div class="list"></div></div></div>
+<div id="appsDlg" role="dialog" aria-modal="true"><div class="panel"><div class="msg"></div><div class="btns"><button type="button">Yes</button><button type="button">No</button></div></div></div>
 <div id="cardView"><img alt=""></div>
 <!-- タイトル画面(ゲームの画面とは別) -->
-<div id="title"><canvas id="titleBg"></canvas><canvas id="titleCv" width="480" height="450"></canvas><div class="list"></div><div class="hint" data-i18n="titleHint">↑↓←→で えらんで ＥＮＴＥＲ</div></div>
+<div id="title"><canvas id="titleBg"></canvas><button id="appsBtn" type="button" aria-label="App list"><canvas width="16" height="16"></canvas></button><button id="copyBtn" type="button">© 2026 daisuqe. All rights reserved.</button><canvas id="titleCv" width="480" height="450"></canvas><div class="list"></div><div class="hint" data-i18n="titleHint">↑↓←→で えらんで ＥＮＴＥＲ</div></div>
 <div id="rotate" data-i18n-html="rotateMsg">スマホを縦にしてください<br>(縦画面専用です)</div>
 <script src="music/bgm_score_ice.js"></script>
 <script src="music/bgm_score_forest.js"></script>
@@ -207,6 +263,7 @@
 <script src="music/bgm_score_thunder.js"></script>
 <script src="music/bgm_score_dark.js"></script>
 <script src="music/bgm_gameover.js"></script>
+<script src="music/bgm_title.js"></script>
 <script>
   // 開発中は、古い game.js がブラウザに残らないよう、毎回読み直す
   document.write('<script src="lang.js?t=' + Date.now() + '"><\/script>');

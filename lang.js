@@ -1,3 +1,6 @@
+// EGG QUEST — © 2026 daisuqe. All rights reserved.
+// 本ゲームの著作権は daisuqe が保有します。無断での複製・改変・再配布・転載を禁じます。詳しくは LICENSE を見てください。
+// All rights reserved. Copying, modifying, redistributing, or reposting without permission is prohibited. See LICENSE for details.
 'use strict';
 // ---- ことば: 日本語 / 英語 / 中国語(簡体字)/ 韓国語。画面に出す文字だけをここにまとめる ----
 // 最初は端末(OS・ブラウザ)の言語で決まる(日本語・中国語・韓国語以外は英語)。設定で変えたら端末に覚えておく。
@@ -24,6 +27,9 @@ const STR = {
   cont:       ['つづきから', 'CONTINUE', '继续游戏', '이어하기'],
   // ランキング
   ranking:    ['ランキング', 'RANKING', '排行榜', '랭킹'],
+  rankHard:   ['ランキング(むずかしい)', 'RANKING (HARD)', '排行榜(困难)', '랭킹(어려움)'],
+  rankShowHard: ['むずかしいを見る', 'SHOW HARD', '查看困难', '어려움 보기'],
+  rankShowNormal: ['ふつうを見る', 'SHOW NORMAL', '查看普通', '보통 보기'],
   zukan:      ['ずかん', 'BESTIARY', '图鉴', '도감'],
   zCards:     ['ルネリアのカード', 'Luneria Cards', '露内莉亚卡片', '루네리아 카드'],
   zLocked:    ['ステージを{n}回クリアで開封', 'Clear stages {n} time(s) to unlock', '过关{n}次后解锁', '스테이지를 {n}번 클리어하면 열림'],
@@ -67,7 +73,38 @@ const STR = {
   autoPot:    ['自動ポーション: ', 'AUTO POTION: ', '自动药水: ', '자동 물약: '],
   flick:      ['フリック', 'FLICK', '滑动', '플릭'],
   buttons:    ['ボタン', 'BUTTONS', '按钮', '버튼'],
-  language:   ['Language: ', 'Language: ', 'Language: ', 'Language: '],   // どの言語でも英語(読めない言語になっても、戻し方がわかるように)
+  language:   ['Language: ', 'Language: ', 'Language: ', 'Language: '],
+  diffTitle:  ['むずかしさ', 'DIFFICULTY', '难度', '난이도'],
+  diffNormal: ['ふつう', 'NORMAL', '普通', '보통'],
+  diffHard:   ['むずかしい', 'HARD', '困难', '어려움'],
+  diffMsg:    ['「むずかしい」は、ブロックが速く落ち、敵も強くなります。', 'On HARD, blocks fall faster and enemies are stronger.', '"困难"模式下,方块下落更快,敌人也更强。', '"어려움"에서는 블록이 빨리 떨어지고 적도 강해져요.'],
+  keyCfg:     ['キー・コントローラー設定', 'KEYS / CONTROLLER', '按键・手柄设置', '키・컨트롤러 설정'],
+  cfgKb:      ['キーボード', 'Keyboard', '键盘', '키보드'],
+  cfgPad:     ['コントローラー', 'Controller', '手柄', '컨트롤러'],
+  cfgDef:     ['初期設定に戻す', 'Reset to default', '恢复默认', '기본값으로'],
+  cfgPress:   ['キーを押してください…', 'Press a key...', '请按键…', '키를 누르세요…'],
+  cfgPressPad: ['ボタンを押してください…', 'Press a button...', '请按按钮…', '버튼을 누르세요…'],
+  cfgKbNote:  ['変えたい枠を選んでから、新しいキーを押します。Backspace で空にします。Esc で取り消します。Esc(メニュー)・P(ポーズ)・M(BGM)・R(リスタート)は変えられません。',
+               'Select a slot, then press the new key. Backspace = clear. Esc = cancel. Esc (menu), P (pause), M (BGM) and R (restart) cannot be changed.',
+               '选择要更改的栏,然后按新的键。Backspace 清空,Esc 取消。Esc(菜单)、P(暂停)、M(BGM)、R(重新开始)不能更改。',
+               '바꿀 칸을 고른 뒤 새 키를 누르세요. Backspace로 비우고 Esc로 취소합니다. Esc(메뉴)・P(일시정지)・M(BGM)・R(다시 시작)은 바꿀 수 없어요.'],
+  cfgPadNote: ['変えたい枠を選んでから、新しいボタンを押します。十字キー・左スティックの左右と下は、いつも移動・1マス落とすです。メニューの中は、十字キーで選び、A で決定、B で戻ります。',
+               'Select a slot, then press the new button. The D-pad and left stick always move and drop. In menus: D-pad = select, A = OK, B = back.',
+               '选择要更改的栏,然后按新的按钮。十字键和左摇杆的左右与下总是用于移动和下落。菜单中用十字键选择,A 确定,B 返回。',
+               '바꿀 칸을 고른 뒤 새 버튼을 누르세요. 십자키와 왼쪽 스틱의 좌우・아래는 항상 이동・내리기입니다. 메뉴에서는 십자키로 고르고 A로 결정, B로 돌아갑니다.'],
+  cfgReserved: ['このキーは使えません。ほかのキーにしてください。', 'That key is reserved. Please choose another.', '这个键不能使用,请选择其他键。', '이 키는 쓸 수 없어요. 다른 키를 고르세요.'],
+  cfgHelp:    ['これは初期設定のキーです。せっていの「キー・コントローラー設定」で変えられます。', 'These are the default keys. You can change them in Settings > Keys / Controller.', '这是默认按键,可在设置的"按键・手柄设置"中更改。', '기본 키입니다. 설정의 "키・컨트롤러 설정"에서 바꿀 수 있어요.'],
+  actLeft:    ['左へ移動', 'Move left', '左移', '왼쪽 이동'],
+  actRight:   ['右へ移動', 'Move right', '右移', '오른쪽 이동'],
+  actRotL:    ['左回転', 'Rotate left', '左旋转', '왼쪽 회전'],
+  actRotR:    ['右回転', 'Rotate right', '右旋转', '오른쪽 회전'],
+  actSoft:    ['1マス落とす', 'Drop 1 row', '下落1格', '1칸 내리기'],
+  actHard:    ['すぐ落とす', 'Hard drop', '直接落下', '바로 내리기'],
+  actSwap:    ['NEXTと入れかえ', 'Swap with NEXT', '与NEXT交换', 'NEXT와 교체'],
+  actPotion:  ['ポーション', 'Potion', '药水', '물약'],
+  actMoon:    ['月光波', 'Moon wave', '月光波', '월광파'],
+  actPause:   ['メニュー', 'Menu', '菜单', '메뉴'],
+  actBgm:     ['BGM オン/オフ', 'BGM on/off', 'BGM 开/关', 'BGM 켜기/끄기'],   // どの言語でも英語(読めない言語になっても、戻し方がわかるように)
   // ライン消し
   linesX:     ['ライン×', 'LINES×', '消行×', '라인×'],
   eggsX:      ['タマゴ×', 'EGGS×', '蛋×', '알×'],

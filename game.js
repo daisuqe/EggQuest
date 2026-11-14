@@ -1,4 +1,22 @@
+// EGG QUEST — © 2026 daisuqe. All rights reserved.
+// 本ゲームの著作権は daisuqe が保有します。無断での複製・改変・再配布・転載を禁じます。詳しくは LICENSE を見てください。
+// All rights reserved. Copying, modifying, redistributing, or reposting without permission is prohibited. See LICENSE for details.
 'use strict';
+// ---- 端末のデータのバージョン ----
+// 端末に覚えているデータ(eq_ver)がこれより古ければ、遊んだ記録(途中データ・ずかん・むずかしいの解放)を消す。
+// 設定(言語・操作・キー・自動ポーション・ランキングの名前)は消さない。
+// 正式リリースで一度だけ消すために 2 にした。これからは、また消したいときだけ数字を上げる
+const DATA_VER = 2;
+(() => {
+  try {
+    const v = parseInt(localStorage.getItem('eq_ver') || '0', 10) || 0;
+    if (v < DATA_VER) {
+      for (const k of ['eq_save', 'eq_zukan', 'eq_hard']) localStorage.removeItem(k);
+      localStorage.setItem('eq_ver', String(DATA_VER));
+    }
+  } catch (e) {}
+})();
+
 const COLS = 10, ROWS = 20, CELL = 30;
 const cv = document.getElementById('board'), ctx = cv.getContext('2d');
 const nv = document.getElementById('next'), nctx = nv.getContext('2d');
@@ -461,6 +479,13 @@ const BGM_VOICES = {               // 全パート、やわらかい矩形波(8�
   chip:     { wave: 'pulse', gain: 1.40, a: 0.005, r: 0.05, lp: 3000, sus: 0.6 },
   timpani:  { drum: 'timp',  gain: 0.90 },
   snare:    { drum: 'snare', gain: 0.80 },
+  // タイトルの曲(music/bgm_title.js「月のリボンと冒険の扉」)の音色: フルートのメロディ・チェレスタのきらめき・流れるハープ・やわらかい弦・ベース・ピチカート
+  tFlute:   { wave: 'flute', gain: 0.32, a: 0.035, r: 0.11, lp: 3500, vib: 0.10, sus: 0.95 },
+  tCelesta: { wave: 'flute', gain: 0.26, a: 0.008, r: 0.60, lp: 4500, sus: 0.30 },
+  tHarp:    { wave: 'tri',   gain: 0.22, a: 0.007, r: 0.32, lp: 3200, sus: 0.40 },
+  tStrings: { wave: 'pulse', gain: 0.08, a: 0.105, r: 0.26, lp: 1500, det: 7, vib: 0.05, sus: 0.90 },
+  tBass:    { wave: 'tri',   gain: 0.45, a: 0.014, r: 0.13, lp: 900,  sus: 0.70 },
+  tPizz:    { wave: 'tri',   gain: 0.26, a: 0.006, r: 0.12, lp: 2000, sus: 0.15 },
 };
 const bgmWaves = new WeakMap();   // オーディオの環境ごとに作った波形
 function bgmCache(ctx) { let m = bgmWaves.get(ctx); if (!m) bgmWaves.set(ctx, m = {}); return m; }
@@ -520,7 +545,8 @@ function bgmNote(ctx, out, name, t, dur, note, vel, list) {
 }
 // 曲全体の音を、時間順に1列に並べる
 // ステージの曲: window.BGM_SCORES[属性](music/bgm_score_<名前>.js)。なければ共通の曲(window.BGM_SCORE)
-function bgmScore() { return (window.BGM_SCORES || {})[stageAttr()] || window.BGM_SCORE || null; }
+// タイトル画面では、タイトルの曲(window.TITLE_SCORE、music/bgm_title.js)
+function bgmScore() { return (titleScreen && window.TITLE_SCORE) || (window.BGM_SCORES || {})[stageAttr()] || window.BGM_SCORE || null; }
 const bgmNotesCache = new Map();
 function bgmScoreNotes(sc = bgmScore()) {
   if (!sc) return null;
@@ -720,7 +746,16 @@ function hardDrop() {
 // 1マス落ちる時間(ミリ秒): レベル1は 2.67秒。レベルが1上がるごとに 12% ずつ短くなり、いちばん速くても 0.35秒
 // (前は直線で縮めていたので、レベル10〜12(火のステージのあたり)で急に最速 0.23秒になっていた)
 const GRAV_START = 2667, GRAV_RATE = 0.88, GRAV_MIN = 350;
-function gravityInterval() { return Math.max(GRAV_MIN, GRAV_START * Math.pow(GRAV_RATE, level - 1)); }
+// むずかしい(全クリアした人だけ選べる): 落下は 2.0秒から 15% ずつ速くなり、いちばん速くて 0.25秒。
+// 敵の体力・攻撃力は 1.7倍、ザコは 0.6倍の間隔で出てくる。後半(ステージ5から)は、敵をさらに 1.25倍、落下の時間を 0.7倍(速く)。
+// シミュレーション 20回: ちょっとうまい人 9回クリア / 中くらいの人 2回クリア
+const HARD = { gravStart: 2000, gravRate: 0.85, gravMin: 250, enemyMul: 1.7, zakoItv: 0.6, lateFrom: 5, lateMul: 1.25, lateGrav: 0.7 };
+// lateFrom: このステージからが後半。後半は 敵の体力・攻撃力を さらに lateMul 倍、落下の時間を lateGrav 倍(小さいほど速い)にする
+let hard = false;
+function gravityInterval() {
+  return hard ? Math.max(HARD.gravMin, HARD.gravStart * Math.pow(HARD.gravRate, level - 1)) * (stage >= HARD.lateFrom ? HARD.lateGrav : 1)
+              : Math.max(GRAV_MIN, GRAV_START * Math.pow(GRAV_RATE, level - 1));
+}
 
 function update(dt) {
   if (over || paused || stageClear) return;
@@ -765,6 +800,7 @@ function updateHud() {
     for (const px of SCORE_PX) { sc.style.fontSize = px + 'px'; if (!sc.offsetWidth || sc.offsetWidth <= room) break; }
   }
   document.getElementById('stage').textContent = stage;
+  const hm = document.getElementById('hardMark'); if (hm && hm.style) hm.style.display = hard ? '' : 'none';
 }
 
 // ---- 描画 ----
@@ -1316,7 +1352,7 @@ function updateEnemies(dt) {
     const next = stageQueue[0];
     if (ZAKO[next] ? alive.length < ZAKO_ALIVE + (stage >= 2 ? ZAKO_ALIVE_UP : 0) : alive.length === 0) {
       spawnEnemy(stageQueue.shift());
-      enemyTimer = ZAKO_INTERVAL;
+      enemyTimer = ZAKO_INTERVAL * (hard ? HARD.zakoItv : 1);
     }
   }
   // 進む: 前(左)の敵を追い越さず、その後ろに並ぶ。届く相手がいれば止まって戦う。ルネリアの手前で止まる
@@ -1596,7 +1632,7 @@ const ZAKO_ALIVE_UP = 1;          // ステージ2からは、同時に出るザ
 const ENEMY_BONUS = 500;          // 敵(ボス)を倒した得点 x ステージ
 const STAGE_BONUS = 3000;         // ステージクリアの得点 x ステージ
 const CLEAR_SHOW_MS = 2600;       // 扉が開いてから、STAGE CLEAR を見せる時間
-function stageMul() { return 1 + STAGE_UP * (stage - 1) + (stage >= 2 ? STAGE_STEP : 0); }
+function stageMul() { return (1 + STAGE_UP * (stage - 1) + (stage >= 2 ? STAGE_STEP : 0)) * (hard ? HARD.enemyMul * (stage >= HARD.lateFrom ? HARD.lateMul : 1) : 1); }
 const DOOR_DEF = 20;              // 扉の防御(%)
 const DOOR_OPEN_MS = 1000;        // 扉が開ききるまで
 const ATTR_COLOR = { '火': '#e04040', '水': '#3a5be0', '草': '#46c43c', '雷': '#e8d02f', '氷': '#2fd0e8', '地': '#f08a1c', '闇': '#a443d4' };
@@ -1609,6 +1645,7 @@ const ENDING_BONUS = 10000;       // ラスボスを倒したときのボーナ�
 function startEnding() {          // ラスボスを倒した: 戦場を一掃してエンディング
   over = true; overReason = 'ending'; cur = null; stopHolds();
   zukanClear();   // 最終ステージのクリアも1回に数える
+  store.set('eq_hard', '1');   // 全クリアした: 次から「むずかしい」を選べる
   const bonus = ENDING_BONUS;
   score += bonus; updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: 4000, size: 16, still: true });
@@ -1686,7 +1723,7 @@ function nextStage() {             // 次のステージへ: 戦場(モンスタ
 // スコア順。最後に行けたステージも記録する。終わったら(ゲームオーバー・エンディング)名前を入れて登録できる
 const SCORE_API = ((new URLSearchParams(location.search).get('api')) || 'https://egg-quest-scores.haradadaisuke.workers.dev').replace(/\/+$/, '');   // ?api= は動作確認用。空にするとランキングを出さない
 const SUBMIT_DELAY = 2500;         // 終わってから、登録の画面を出すまで(ミリ秒)
-const rank = { scores: null, loading: false, err: '', msg: '', myRank: 0, myName: '', sent: false, offered: false, sending: false };
+const rank = { scores: null, loading: false, err: '', msg: '', myRank: 0, myName: '', sent: false, offered: false, sending: false, mode: 'normal' };   // mode: 見ているランキング(normal / hard)
 function rankStore(k, v) { try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch (e) { return ''; } }
 function finalStage() { return Math.min(stage, STAGE_ORDER.length); }
 function offerSubmit() {
@@ -1695,16 +1732,20 @@ function offerSubmit() {
   setTimeout(() => { if (over && !titleScreen && !menuOpen) openMenu('submit'); }, SUBMIT_DELAY);
 }
 async function loadRanking() {
-  rank.loading = true; rank.err = ''; if (menuOpen) renderMenu();
+  rank.loading = true; rank.err = ''; rank.scores = null; if (menuOpen) renderMenu();
+  const mode = rank.mode;
   try {
-    const r = await fetch(SCORE_API + '/scores', { cache: 'no-store' });
+    const r = await fetch(SCORE_API + '/scores' + (mode === 'hard' ? '?mode=hard' : ''), { cache: 'no-store' });
     const j = await r.json();
     if (!r.ok || !j.scores) throw new Error(j.error || r.status);
+    if (mode !== rank.mode) return;   // 読んでいる間に切りかえた
     rank.scores = j.scores;
-  } catch (e) { rank.err = T('rankFail'); }
+  } catch (e) { if (mode !== rank.mode) return; rank.err = T('rankFail'); }
   rank.loading = false; if (menuOpen) renderMenu();
 }
-function openRanking() { rank.myRank = 0; rank.myName = ''; openMenu('ranking'); loadRanking(); }
+// ランキングの切りかえ(ふつう ⇔ むずかしい)
+function toggleRankMode() { rank.mode = rank.mode === 'hard' ? 'normal' : 'hard'; rank.msg = ''; loadRanking(); }
+function openRanking() { rank.myRank = 0; rank.myName = ''; rank.msg = ''; rank.mode = 'normal'; openMenu('ranking'); loadRanking(); }
 async function sendScore() {
   if (rank.sending || rank.sent) return;
   const input = menuEl.querySelector('#rankName'), name = (input ? input.value : '').trim();
@@ -1713,10 +1754,10 @@ async function sendScore() {
   rank.sending = true; rank.msg = T('sending'); renderMenu();
   try {
     const r = await fetch(SCORE_API + '/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, score, stage: finalStage(), lines, cleared: overReason === 'ending', duration: Math.round(playMs) }) });
+      body: JSON.stringify({ name, score, stage: finalStage(), lines, cleared: overReason === 'ending', duration: Math.round(playMs), hard }) });
     const j = await r.json();
     // 自己ベストを超えていないときは登録されない(updated: false)
-    if (r.ok && j.ok) { rank.sent = true; rank.myRank = j.rank; rank.myName = j.name; rank.msg = j.updated === false ? T('notBest').replace('{b}', j.best) : T('rankIs').replace('{n}', j.rank); menuMode = 'ranking'; menuSel = 0; loadRanking(); }
+    if (r.ok && j.ok) { rank.sent = true; rank.myRank = j.rank; rank.myName = j.name; rank.msg = j.updated === false ? T('notBest').replace('{b}', j.best) : T('rankIs').replace('{n}', j.rank); rank.mode = hard ? 'hard' : 'normal'; menuMode = 'ranking'; menuSel = 0; loadRanking(); }
     else rank.msg = T(j.error === 'below_cutoff' ? 'notTop' : j.error === 'too_fast' ? 'tooFast' : j.error === 'too_many' ? 'tooMany' : 'rankFail');
   } catch (e) { rank.msg = T('rankFail'); }
   rank.sending = false; if (menuOpen) renderMenu();
@@ -1725,7 +1766,7 @@ const escHtml = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&
 function renderRankArea(box) {
   if (menuMode === 'submit') {   // 登録: 今回のスコア・ステージと、名前の入力
     const st = finalStage() + (overReason === 'ending' ? ' ★' : '');
-    box.innerHTML = `<div class="rstat"><span>SCORE</span><b>${score}</b><span>STAGE</span><b>${st}</b></div>
+    box.innerHTML = `<div class="rstat"><span>SCORE</span><b>${score}</b><span>STAGE</span><b>${st}</b>${hard ? '<span class="rhard">HARD</span>' : ''}</div>
       <div class="rlabel">${escHtml(T('yourName'))}</div>
       <input id="rankName" type="text" maxlength="12" autocomplete="nickname" spellcheck="false">
       <div class="rmsg">${escHtml(rank.msg)}</div>`;
@@ -1758,7 +1799,7 @@ function saveGame() {
   if (over) return;
   if (clearing) { saveSoon = true; return; }
   saveSoon = false;
-  const data = { v: SAVE_VER, stage, score, lines, level, potion, moon, playMs,
+  const data = { v: SAVE_VER, stage, score, lines, level, potion, moon, playMs, hard,
                  queue: (cur ? [cur.name] : []).concat(queue),   // 落ちている途中のミノは、上から出し直す
                  board: board.map(row => row.map(c => c && { color: c.color, hole: c.hole, rivet: c.rivet, under: c.under, name: c.name, underName: c.underName, links: c.links })) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) {}
@@ -1771,6 +1812,7 @@ function continueGame() {           // つづきから: 保存したステージ
   const d = readSave();
   if (!d) { renderTitle(); return; }
   reset();
+  hard = !!d.hard;
   stage = d.stage; score = d.score; lines = d.lines; level = d.level;
   potion = d.potion || 0; moon = d.moon || 0; playMs = d.playMs || 0;
   board = d.board.map(row => row.map(c => c || null));
@@ -2419,14 +2461,25 @@ function showTitle(on) {
 function startGame() {
   if (!titleScreen) return;
   showTitle(false);
+  switchBgm();                      // タイトルの曲から、ステージの曲へ
   stageIntroT = 2000;               // 「STAGE 1」を見せてから始める
   sfx('clear', 1);
 }
-function backToTitle() { clearSave(); closeMenu(); reset(); restartBgm(); showTitle(true); }
+function backToTitle() { clearSave(); closeMenu(); reset(); showTitle(true); restartBgm(); }   // タイトルの曲を頭から
 // 絵の大きさ: 画面の幅(と高さ)に合わせる。ボタンのぶんの高さは空けておく
 function fitTitle() {
   if (!titleCv || !titleCv.style) return;
-  const w = Math.max(200, Math.min(innerWidth - 16, TITLE_W * 1.25, (innerHeight - 250) * TITLE_W / TITLE_H));
+  // 絵の下に並ぶもの(ボタン・操作の説明)の高さを測って、残りに絵を収める。
+  // 一番下の著作権の表示と重ならないように、上下にその分の余白を残す(まん中に寄せているので2倍)
+  let used = 250, copyRoom = 0;
+  try {
+    const gap = parseFloat(getComputedStyle(titleEl).rowGap) || 18;
+    const list = titleEl.querySelector('.list'), hint = titleEl.querySelector('.hint'), copy = document.getElementById('copyBtn');
+    used = ((list && list.offsetHeight) || 192) + gap + 6;
+    if (hint && hint.offsetHeight) used += hint.offsetHeight + gap;
+    copyRoom = copy && copy.offsetHeight ? 2 * (copy.offsetHeight + 8) : 0;
+  } catch (e) {}   // 測れないとき(シミュレーションなど)は、前と同じ 250px
+  const w = Math.max(120, Math.min(innerWidth - 16, TITLE_W * 1.25, (innerHeight - used - copyRoom) * TITLE_W / TITLE_H));
   const dpr = window.devicePixelRatio || 1;
   titleCv.style.width = Math.round(w) + 'px'; titleCv.style.height = Math.round(w * TITLE_H / TITLE_W) + 'px';
   titleCv.width = Math.round(w * dpr); titleCv.height = Math.round(w * TITLE_H / TITLE_W * dpr);
@@ -2910,6 +2963,7 @@ function settingItems() {
   if (touchMode) list.push([T('controls') + T(gMode === 'flick' ? 'flick' : 'buttons'), () => {
     gMode = gMode === 'flick' ? 'buttons' : 'flick'; store.set('eq_mode', gMode); applyMode(); fitAll(); renderMenu(); }]);
   list.push([T('language') + LANG_NAME[lang], () => setLang(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length])]);   // 押すたびに次の言語へ
+  if (!touchMode) list.push([T('keyCfg'), openConfig]);   // キー・コントローラー設定は PC だけ
   return list;
 }
 // 言語を変える: 画面の文字をみんな書き直して、端末に覚えておく
@@ -2927,6 +2981,7 @@ function askConfirm(msg, yesLabel, yes, back) {
 // 「もどる」(Esc・パッドの B・枠の外をタップ): 確認のときは、やめたときと同じ
 function menuBack() {
   if (menuMode === 'confirm' && confirmState && confirmState.back) confirmState.back();
+  else if (menuMode === 'config') cfgBack();   // キー・コントローラー設定: 開く前のメニューにもどる
   else if (menuMode === 'help' && helpFromGame !== null) helpBack();   // ゲーム中のメニューから開いたあそびかたは、メニューにもどる
   else closeMenu();
 }
@@ -2947,16 +3002,26 @@ function askToTitle() {
   const back = menuSel;
   askConfirm(T('qToTitle'), T('toTitle'), backToTitle, () => { menuMode = 'game'; menuSel = back; renderMenu(); });
 }
+// 難易度: 全クリアしたことがあれば、スタートのあとに「ふつう / むずかしい」を選ぶ。まだなら、ふつうですぐ始まる
+const hardUnlocked = () => store.get('eq_hard', '') === '1';
+function beginGame(h) { closeMenu(); clearSave(); hard = !!h; reset(); startGame(); }
+function chooseDiff() {
+  if (!hardUnlocked()) { beginGame(false); return; }
+  if (menuOpen) { menuMode = 'diff'; menuSel = 0; renderMenu(); } else openMenu('diff');
+}
 function askNewGame() {
-  const go = () => { closeMenu(); clearSave(); startGame(); };
+  const go = () => { closeMenu(); chooseDiff(); };
   if (!readSave()) { go(); return; }
   askConfirm(T('qNewGame'), T('start'), go, closeMenu);
 }
 function menuItems() {   // [ラベル, 動き]
   if (menuMode === 'confirm') return [[confirmState.yesLabel, confirmState.yes], [T('cancel'), menuBack]];
+  if (menuMode === 'license') return [['Close', closeMenu]];
+  if (menuMode === 'diff') return [[T('diffNormal'), () => beginGame(false)], [T('diffHard'), () => beginGame(true)]];
+  if (menuMode === 'config') return [[T('close'), menuBack]];
   if (menuMode === 'help' || menuMode === 'zukan') return [[T('close'), menuBack]];
   if (menuMode === 'submit') return rank.sent ? [[T('close'), closeMenu]] : [[T('regBtn'), sendScore], [T('close'), closeMenu]];
-  if (menuMode === 'ranking') return [[T('close'), closeMenu]];
+  if (menuMode === 'ranking') return [[T(rank.mode === 'hard' ? 'rankShowNormal' : 'rankShowHard'), toggleRankMode], [T('close'), closeMenu]];
   if (menuMode === 'settings') return [...settingItems(), [T('close'), closeMenu]];   // とじる(つづける)は、いちばん下
   return [[T('restart'), askRestart], ...settingItems(), [T('howto'), openGameHelp], [T('toTitle'), askToTitle],
           [T(over ? 'close' : 'resume'), closeMenu]];
@@ -2964,7 +3029,7 @@ function menuItems() {   // [ラベル, 動き]
 // あそびかた(操作は、スマホかキーボードかで変える)
 function helpLines() {
   const kind = touchMode && gMode === 'flick' ? 'flick' : touchMode ? 'buttons' : 'keys';
-  return { keys: HELP[kind][LI()], notes: HELP.notes[LI()] };
+  return { keys: kind === 'keys' ? HELP.keys[LI()].concat([['', T('cfgHelp')]]) : HELP[kind][LI()], notes: HELP.notes[LI()] };
 }
 // ボタンの列を作る(タイトルとメニューで共通)
 function renderList(box, items, sel, onPick) {
@@ -3034,12 +3099,15 @@ function renderZukan(box) {
 }
 function renderMenu() {
   if (!menuEl || !menuEl.querySelector) return;
-  menuEl.querySelector('.title').textContent = T(menuMode === 'zukan' ? 'zukan' : menuMode === 'help' ? 'howto' : menuMode === 'settings' ? 'settings' : menuMode === 'submit' ? 'regTitle' : menuMode === 'ranking' ? 'ranking' : menuMode === 'confirm' ? 'confirm' : 'menu');
+  menuEl.querySelector('.title').textContent = menuMode === 'license' ? 'License' : T(menuMode === 'diff' ? 'diffTitle' : menuMode === 'config' ? 'keyCfg' : menuMode === 'zukan' ? 'zukan' : menuMode === 'help' ? 'howto' : menuMode === 'settings' ? 'settings' : menuMode === 'submit' ? 'regTitle' : menuMode === 'ranking' ? (rank.mode === 'hard' ? 'rankHard' : 'ranking') : menuMode === 'confirm' ? 'confirm' : 'menu');
   const help = menuEl.querySelector('.help');
   help.innerHTML = '';
   if (menuMode === 'submit' || menuMode === 'ranking') renderRankArea(help);
   if (menuMode === 'confirm' && confirmState) { const m = document.createElement('div'); m.className = 'confirm'; m.textContent = confirmState.msg; help.appendChild(m); }
-  help.classList.toggle('doc', menuMode === 'help' || menuMode === 'zukan');   // あそびかた・ずかんは、読みやすい普通の書体で
+  help.classList.toggle('doc', menuMode === 'help' || menuMode === 'zukan' || menuMode === 'license' || menuMode === 'config');
+  if (menuMode === 'config') renderConfig(help);
+  if (menuMode === 'diff') { const m = document.createElement('div'); m.className = 'confirm'; m.textContent = T('diffMsg'); help.appendChild(m); }
+  if (menuMode === 'license') { const d = document.createElement('div'); d.className = 'lic'; d.textContent = LICENSE_TEXT; help.appendChild(d); }   // あそびかた・ずかんは、読みやすい普通の書体で
   if (menuMode === 'zukan') renderZukan(help);
   if (menuMode === 'help') {
     const { keys, notes } = helpLines();
@@ -3050,13 +3118,14 @@ function renderMenu() {
     add('h', T('hScore')); rows(HELP.score[LI()]);
   }
   renderList(menuEl.querySelector('.list'), menuItems(), menuSel, i => { menuSel = i; });
+  if (menuMode === 'config') cfgApplySel();
 }
 function openMenu(mode) {
   if (menuOpen || !menuEl || !menuEl.classList) return;
   menuMode = mode || (titleScreen ? 'settings' : 'game');
   helpFromGame = null;
   menuOpen = true; menuPaused = paused;
-  menuSel = menuMode === 'submit' ? 0 : menuMode === 'confirm' ? 1 : menuItems().length - 1;   // 最初は、いちばん下の「とじる(つづける)」を選んでおく(うっかりリスタートしないように)。登録は「登録する」
+  menuSel = menuMode === 'submit' || menuMode === 'diff' ? 0 : menuMode === 'confirm' ? 1 : menuItems().length - 1;   // 最初は、いちばん下の「とじる(つづける)」を選んでおく(うっかりリスタートしないように)。登録は「登録する」
   if (!titleScreen) { paused = true; stopHolds(); }
   menuEl.classList.add('open'); renderMenu();
 }
@@ -3093,14 +3162,85 @@ function holdStop(id) { const h = holds[id]; if (!h) return; clearTimeout(h.t1);
 function stopHolds() { for (const id in holds) holdStop(id); }
 
 // ---- キーボード(e.code で判定) ----
-const KEY_MAP = {
-  ArrowLeft: 'left', Numpad4: 'left', ArrowRight: 'right', Numpad6: 'right',
-  KeyZ: 'rotL', Numpad1: 'rotL', Numpad5: 'rotL', KeyX: 'rotR', ArrowUp: 'rotR', Numpad3: 'rotR',
-  ArrowDown: 'soft', Numpad2: 'soft', Space: 'hard', Numpad0: 'hard',
-  ShiftLeft: 'swap', ShiftRight: 'swap', KeyA: 'swap', Numpad7: 'swap', Numpad8: 'swap', Numpad9: 'swap',   // NEXT と入れかえ
-};
+// キーの割り当て(keyMap)は、下の「キー・コントローラー設定」で変えられる(PC だけ)
+// ---- 著作権: タイトルの一番下の表示を押すと、License の画面(文章は LICENSE ファイルと同じ) ----
+const LICENSE_TEXT = "Copyright (c) 2026 daisuqe. All rights reserved.\nThis game (\"EGG QUEST\"), including its source code, graphics, music data, and\ntext, is the property of the copyright holder. No license is granted to copy,\nmodify, distribute, sublicense, sell, or publish any part of it, in source or\ncompiled form, without prior written permission from the copyright holder.\nYou may play the game as published at its official page.\n本ゲーム「EGG QUEST」(ソースコード、画像、音楽データ、文章を含む)の著作権は、\ndaisuqe が保有します。著作権者の事前の書面による許可なく、全部または一部を、\n複製、改変、再配布、転載、販売、公開することを禁じます。\n公式に公開されているページで、遊ぶことは自由です。\n";
+const copyBtn = document.getElementById('copyBtn');
+if (copyBtn && copyBtn.addEventListener) {
+  copyBtn.addEventListener('click', e => { e.preventDefault(); openMenu('license'); });
+  copyBtn.addEventListener('pointerdown', e => e.stopPropagation());   // タイトルの操作には渡さない
+}
+// ---- タイトル画面の右上: アプリ一覧へ移動するボタンと、確認のダイアログ ----
+// アイコンは 16x16 の白黒データ(# = 色をぬる、. = 透明)。画像ファイルは使わない
+const APPS_ICON = [
+  '......###...###.',
+  '.....#...#.#...#',
+  '.....#...#.#...#',
+  '.....#..#..#..#.',
+  '.....#..#..#..#.',
+  '....##..####..#.',
+  '..##.......#..#.',
+  '.#............#.',
+  '#.............#.',
+  '#..............#',
+  '############...#',
+  '............#..#',
+  '.###########...#',
+  '.#............#.',
+  '..##........##..',
+  '....########....'
+];
+const APPS_URL = 'https://daisuqe.github.io/';
+const APPS_COL = '#dde';             // タイトルのボタンの文字と同じ色
+const appsBtn = document.getElementById('appsBtn'), appsDlg = document.getElementById('appsDlg');
+let appsOpen = false, appsSel = 1;   // 0 = Yes / 1 = No(はじめは No)
+(() => {
+  const c = appsBtn && appsBtn.querySelector && appsBtn.querySelector('canvas');
+  if (!c || !c.getContext) return;
+  const g = c.getContext('2d');
+  g.fillStyle = APPS_COL;
+  APPS_ICON.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] === '#') g.fillRect(x, y, 1, 1); });
+})();
+function appsBtns() { return appsDlg && appsDlg.querySelectorAll ? [...appsDlg.querySelectorAll('.btns button')] : []; }
+function appsRender() { appsBtns().forEach((b, i) => b.classList.toggle('sel', i === appsSel)); const b = appsBtns()[appsSel]; if (b) b.focus(); }
+function openApps() {
+  if (!appsDlg || appsOpen) return;
+  // 文: ゲームの言語が日本語なら日本語、それ以外は英語
+  appsDlg.querySelector('.msg').textContent = lang === 'ja'
+    ? 'アプリ一覧に移動します。\nこのゲームを離れますがよろしいですか？'
+    : 'This will take you to the app list.\nDo you want to leave this game?';
+  appsOpen = true; appsSel = 1; appsDlg.classList.add('open'); stopHolds(); appsRender();
+}
+function closeApps() {
+  if (!appsOpen) return;
+  appsOpen = false; appsDlg.classList.remove('open');
+  if (appsBtn) appsBtn.focus();
+}
+function appsChoose(i = appsSel) { if (i === 0) location.href = APPS_URL; else closeApps(); }
+if (appsBtn && appsBtn.addEventListener) {
+  appsBtn.addEventListener('click', e => { e.preventDefault(); openApps(); });
+  appsBtn.addEventListener('pointerdown', e => e.stopPropagation());   // タイトルの操作には渡さない
+}
+if (appsDlg && appsDlg.addEventListener) {
+  appsDlg.addEventListener('pointerdown', e => { if (e.target === appsDlg) { e.preventDefault(); closeApps(); } });   // 外側を押すと閉じる
+  appsBtns().forEach((b, i) => {
+    b.addEventListener('click', e => { e.preventDefault(); appsChoose(i); });
+    b.addEventListener('pointerenter', () => { appsSel = i; appsBtns().forEach((x, j) => x.classList.toggle('sel', j === i)); });
+  });
+}
+// ダイアログの中のキー: 左右・上下・Tab で選ぶ / Enter・Space・Z・X で決定 / Esc で閉じる。ゲームのキー操作には渡さない
+function appsKey(e) {
+  const k = e.code;
+  e.preventDefault(); e.stopPropagation();
+  if (e.repeat) return;
+  if (k === 'Escape') closeApps();
+  else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(k)) { appsSel = 1 - appsSel; appsRender(); }
+  else if (['Enter', 'NumpadEnter', 'Space', 'KeyZ', 'KeyX'].includes(k)) appsChoose();
+}
 addEventListener('keydown', e => {
-  const k = e.code, a = KEY_MAP[k];
+  const k = e.code, a = keyMap[k];
+  if (appsOpen) { appsKey(e); return; }
+  if ((e.target === appsBtn || e.target === copyBtn) && !menuOpen && (k === 'Enter' || k === 'NumpadEnter' || k === 'Space')) return;   // アイコンのボタン: ふつうのボタンとして押せるように
   if (e.target && e.target.tagName === 'INPUT') {   // 名前の入力中: Enter で登録、Esc で閉じる。ほかのキーは文字の入力に使う
     if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); sendScore(); } else if (k === 'Escape') closeMenu();
     return;
@@ -3109,6 +3249,7 @@ addEventListener('keydown', e => {
   startBgm();
   if (k === 'KeyM') { if (!e.repeat) toggleBgm(); return; }
   if (k === 'Escape') { if (!e.repeat) { if (menuOpen) menuBack(); else openMenu(); } return; }   // タイトルでは「せってい」が開く
+  if (menuOpen && menuMode === 'config') { cfgKey(e); return; }   // キー・コントローラー設定の画面
   if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選んで、Enter / Space / Z / X で決定
     if (!menuOpen && k.startsWith('Arrow')) titleMove(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0);   // タイトルは2列
     else if (k === 'ArrowUp' || k === 'ArrowDown') listKey(k === 'ArrowUp' ? -1 : 1);
@@ -3116,8 +3257,8 @@ addEventListener('keydown', e => {
     return;
   }
   if (k === 'KeyR') { if (!e.repeat) { if (over) restartGame(); else { openMenu(); askRestart(); } } return; }   // 遊んでいる途中は確認する
-  if (k === 'KeyC' || k === 'NumpadAdd') { if (!e.repeat) usePotion(); return; }   // ポーションの瓶(C / テンキーの +)
-  if (k === 'KeyV' || k === 'NumpadEnter') { if (!e.repeat) fireMoon(); return; }   // 月光波(V / テンキーの Enter)
+  if (a === 'potion') { if (!e.repeat) usePotion(); return; }   // ポーション(初期設定: C / テンキーの +)
+  if (a === 'moon') { if (!e.repeat) fireMoon(); return; }      // 月光波(初期設定: V / テンキーの Enter)
   if (k === 'KeyP') { if (!e.repeat) togglePause(); return; }
   if (!a || e.repeat) return;
   holdStart('k:' + k, a);
@@ -3134,6 +3275,150 @@ const store = {
 let gMode = (new URLSearchParams(location.search).get('mode') || store.get('eq_mode', 'flick')) === 'buttons' ? 'buttons' : 'flick';
 function applyMode() { if (document.body && document.body.classList) { document.body.classList.toggle('flick', touchMode && gMode === 'flick'); document.body.classList.toggle('touchdev', touchMode); } }
 applyMode();
+
+// ================= キー・コントローラー設定(PC だけ。PartlyRainy と同じ作り) =================
+// 1つの操作に2つの枠。初期設定では1つの枠に複数のキーが入っていることがある(例: テンキー 7,8,9)。
+// 枠を設定し直すと、その枠は選んだキー(ボタン)1つになる。ほかの操作に使っていたキーは、そちらから外す
+const CFG_KEY_ACTS = ['left', 'right', 'rotL', 'rotR', 'soft', 'hard', 'swap', 'potion', 'moon'];
+const CFG_PAD_ACTS = [...CFG_KEY_ACTS, 'pause', 'bgm'];
+const KEY_DEF = { left: [['Numpad4'], ['ArrowLeft']], right: [['Numpad6'], ['ArrowRight']], rotL: [['Numpad1', 'Numpad5'], ['KeyZ']], rotR: [['Numpad3'], ['KeyX', 'ArrowUp']],
+                  soft: [['Numpad2'], ['ArrowDown']], hard: [['Numpad0'], ['Space']], swap: [['Numpad7', 'Numpad8', 'Numpad9'], ['ShiftLeft', 'ShiftRight', 'KeyA']],
+                  potion: [['NumpadAdd'], ['KeyC']], moon: [['NumpadEnter'], ['KeyV']] };
+const PAD_DEF = { left: [[14], []], right: [[15], []], rotL: [[1], [2]], rotR: [[0], []], soft: [[13], []], hard: [[12], [7]], swap: [[6], []],
+                  potion: [[3], [4]], moon: [[5], []], pause: [[9], []], bgm: [[8], []] };
+const copyDef = d => JSON.parse(JSON.stringify(d));
+function loadBind(key, def, ok) {
+  try {
+    const v = JSON.parse(store.get(key, 'null'));
+    if (v && Object.keys(def).every(a => Array.isArray(v[a]) && v[a].length === 2 && v[a].every(l => Array.isArray(l) && l.every(ok)))) return v;
+  } catch (e) {}
+  return copyDef(def);
+}
+const keyBind = loadBind('eq_keys', KEY_DEF, x => typeof x === 'string');
+const padBind = loadBind('eq_pad', PAD_DEF, x => Number.isInteger(x) && x >= 0 && x < 32);
+let keyMap = {}, padMap = {};      // キー(ボタン) → 操作
+function buildMaps() {
+  keyMap = {}; padMap = {};
+  for (const a of CFG_KEY_ACTS) keyBind[a].forEach(l => l.forEach(c => { keyMap[c] = a; }));
+  for (const a of CFG_PAD_ACTS) padBind[a].forEach(l => l.forEach(i => { padMap[i] = a; }));
+}
+buildMaps();
+function saveBind() { store.set('eq_keys', JSON.stringify(keyBind)); store.set('eq_pad', JSON.stringify(padBind)); buildMaps(); }
+const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'SPACE', ShiftLeft: 'L-SHIFT', ShiftRight: 'R-SHIFT',
+  ControlLeft: 'L-CTRL', ControlRight: 'R-CTRL', AltLeft: 'L-ALT', AltRight: 'R-ALT', NumpadAdd: 'NUM +', NumpadSubtract: 'NUM -', NumpadMultiply: 'NUM *',
+  NumpadDivide: 'NUM /', NumpadDecimal: 'NUM .', NumpadEnter: 'NUM ENTER', Enter: 'ENTER', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+  BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`', Backslash: 'BACKSLASH', Backspace: 'BKSP', CapsLock: 'CAPS',
+  PageUp: 'PGUP', PageDown: 'PGDN', Insert: 'INS', Delete: 'DEL', Home: 'HOME', End: 'END' };
+function keyLabel(c) {
+  let m = /^Numpad([0-9])$/.exec(c); if (m) return 'NUM ' + m[1];
+  m = /^Key([A-Z])$/.exec(c); if (m) return m[1];
+  m = /^Digit([0-9])$/.exec(c); if (m) return m[1];
+  return KEY_NAMES[c] || c.toUpperCase();
+}
+function keysLabel(list) {   // 枠の表示。テンキーの数字だけなら「NUM 7,8,9」のようにまとめる
+  if (!list.length) return '-';
+  if (list.length > 1 && list.every(c => /^Numpad[0-9]$/.test(c))) return 'NUM ' + list.map(c => c.slice(6)).join(',');
+  return list.map(keyLabel).join(',');
+}
+// メニュー・ポーズ・BGM・リスタートなどに使うキーは、割り当てられない
+const keyReserved = c => ['Escape', 'KeyM', 'KeyP', 'KeyR', 'Tab', 'MetaLeft', 'MetaRight', 'ContextMenu'].includes(c) || /^F[0-9]+$/.test(c);
+const PAD_NAMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'BACK', 'START', 'L3', 'R3', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME'];
+const padsLabel = list => list.length ? list.map(i => PAD_NAMES[i] || 'BTN ' + i).join(',') : '-';
+const CFG_ACT_STR = { left: 'actLeft', right: 'actRight', rotL: 'actRotL', rotR: 'actRotR', soft: 'actSoft', hard: 'actHard', swap: 'actSwap', potion: 'actPotion', moon: 'actMoon', pause: 'actPause', bgm: 'actBgm' };
+let cfgCap = null;   // 割り当て待ち: { type: 'key' | 'pad', a: 操作, i: 0 | 1, t0 }
+let cfgMsg = '', cfgSel = 0, cfgFrom = null, padLock = false;
+function openConfig() { cfgFrom = { mode: menuMode, sel: menuSel }; menuMode = 'config'; cfgSel = 0; cfgCap = null; cfgMsg = ''; renderMenu(); const h = menuEl.querySelector('.help'); if (h) h.scrollTop = 0; }
+function cfgBack() {
+  cfgCap = null; cfgMsg = '';
+  const f = cfgFrom || { mode: titleScreen ? 'settings' : 'game', sel: 0 }; cfgFrom = null;
+  menuMode = f.mode; menuSel = f.sel; renderMenu();
+}
+function renderConfig(box) {
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const slot = (type, a, i, label) => {
+    const on = cfgCap && cfgCap.type === type && cfgCap.a === a && cfgCap.i === i;
+    return `<button type="button" class="cfg-slot${on ? ' cap' : ''}" data-cap="${type}" data-a="${a}" data-i="${i}">${esc(on ? T(type === 'key' ? 'cfgPress' : 'cfgPressPad') : label)}</button>`;
+  };
+  let h = `<div class="h">${esc(T('cfgKb'))}</div>`;
+  for (const a of CFG_KEY_ACTS) h += `<div class="crow"><span class="cl">${esc(T(CFG_ACT_STR[a]))}</span><span class="cfg-slots">${slot('key', a, 0, keysLabel(keyBind[a][0]))}${slot('key', a, 1, keysLabel(keyBind[a][1]))}</span></div>`;
+  h += `<div class="cdef"><button type="button" class="cfg-def" data-def="key">${esc(T('cfgDef'))}</button></div><div class="cfg-note${cfgMsg ? ' warn' : ''}">${esc(cfgMsg || T('cfgKbNote'))}</div>`;
+  h += `<div class="h">${esc(T('cfgPad'))}</div>`;
+  for (const a of CFG_PAD_ACTS) h += `<div class="crow"><span class="cl">${esc(T(CFG_ACT_STR[a]))}</span><span class="cfg-slots">${slot('pad', a, 0, padsLabel(padBind[a][0]))}${slot('pad', a, 1, padsLabel(padBind[a][1]))}</span></div>`;
+  h += `<div class="cdef"><button type="button" class="cfg-def" data-def="pad">${esc(T('cfgDef'))}</button></div><div class="cfg-note">${esc(T('cfgPadNote'))}</div>`;
+  box.innerHTML = h;
+}
+// 選んでいる枠(キーボード・パッドで動かす)。設定の枠と、いちばん下の「とじる」をまとめて並べる
+function cfgButtons() { return menuEl && menuEl.querySelectorAll ? [...menuEl.querySelectorAll('.help button'), ...menuEl.querySelectorAll('.list button')] : []; }
+function cfgApplySel() {
+  const bs = cfgButtons(); if (!bs.length) return;
+  cfgSel = Math.max(0, Math.min(bs.length - 1, cfgSel));
+  bs.forEach((b, i) => b.classList.toggle('sel', i === cfgSel));
+  if (bs[cfgSel].scrollIntoView) bs[cfgSel].scrollIntoView({ block: 'nearest' });
+}
+function cfgMove(dx, dy) {   // 見た目の並びのとおりに、上下左右へ
+  const bs = cfgButtons(), cur = bs[cfgSel]; if (!cur) return;
+  const c = b => { const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const [x0, y0] = c(cur);
+  let best = -1, bestD = Infinity;
+  bs.forEach((b, i) => {
+    if (i === cfgSel) return;
+    const [x, y] = c(b), ddx = x - x0, ddy = y - y0;
+    if (dy && (Math.sign(ddy) !== dy || Math.abs(ddy) < 4)) return;
+    if (dx && (Math.abs(ddy) > 4 || Math.sign(ddx) !== dx)) return;
+    const d = dy ? Math.abs(ddy) * 4 + Math.abs(ddx) : Math.abs(ddx);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  if (best >= 0) { cfgSel = best; cfgApplySel(); }
+}
+function cfgActivate() {
+  const bs = cfgButtons(), b = bs[cfgSel]; if (!b) return;
+  if (b.closest('.list')) menuBack(); else b.click();
+}
+function cfgKey(e) {   // 設定の画面のキー(割り当て待ちのときは、下の cfgCapture が先に受け取る)
+  const k = e.code;
+  e.preventDefault();
+  if (e.repeat) return;
+  if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' || k === 'ArrowRight') cfgMove(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0);
+  else if (['Enter', 'NumpadEnter', 'Space', 'KeyZ', 'KeyX'].includes(k)) cfgActivate();
+}
+function setKey(a, i, c) {
+  if (c) for (const x of CFG_KEY_ACTS) keyBind[x] = keyBind[x].map(l => l.filter(v => v !== c));
+  keyBind[a][i] = c ? [c] : []; cfgCap = null; cfgMsg = ''; saveBind(); renderMenu();
+}
+function setPad(a, i, n) {
+  if (n !== null) for (const x of CFG_PAD_ACTS) padBind[x] = padBind[x].map(l => l.filter(v => v !== n));
+  padBind[a][i] = n === null ? [] : [n]; cfgCap = null; saveBind(); renderMenu();
+}
+const cfgHelpEl = menuEl && menuEl.querySelector ? menuEl.querySelector('.help') : null;
+if (cfgHelpEl && cfgHelpEl.addEventListener) cfgHelpEl.addEventListener('click', e => {
+  if (menuMode !== 'config') return;
+  const bs = cfgButtons(), hit = e.target.closest && e.target.closest('button');
+  if (hit && bs.includes(hit)) cfgSel = bs.indexOf(hit);
+  const d = e.target.closest && e.target.closest('[data-def]');
+  if (d) {
+    if (d.dataset.def === 'key') CFG_KEY_ACTS.forEach(a => { keyBind[a] = copyDef(KEY_DEF[a]); }); else CFG_PAD_ACTS.forEach(a => { padBind[a] = copyDef(PAD_DEF[a]); });
+    cfgCap = null; cfgMsg = ''; saveBind(); renderMenu(); return;
+  }
+  const sl = e.target.closest && e.target.closest('[data-cap]');
+  if (sl) {
+    cfgCap = { type: sl.dataset.cap, a: sl.dataset.a, i: Number(sl.dataset.i), t0: performance.now() }; cfgMsg = '';
+    if (cfgCap.type === 'pad') padLock = true;   // 決定に使ったボタンが、そのまま割り当てられないように、いったん離すまで待つ
+    renderMenu(); return;
+  }
+  if (cfgCap) { cfgCap = null; renderMenu(); }
+});
+// 割り当て待ちの間は、押されたキーをここで受け取る(ほかの処理には渡さない)
+addEventListener('keydown', e => {
+  if (!cfgCap) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (e.repeat) return;
+  const c = e.code;
+  if (c === 'Escape') { cfgCap = null; cfgMsg = ''; renderMenu(); return; }
+  if (c === 'Backspace' || c === 'Delete') { cfgCap.type === 'key' ? setKey(cfgCap.a, cfgCap.i, null) : setPad(cfgCap.a, cfgCap.i, null); return; }
+  if (cfgCap.type !== 'key') return;
+  if (keyReserved(c)) { cfgMsg = T('cfgReserved'); renderMenu(); return; }
+  setKey(cfgCap.a, cfgCap.i, c);
+}, true);
 
 // 画面のボタン(data-act: 操作 / data-cmd: ポーズ・リスタート・BGM)。左右・下は長押しで連続
 for (const btn of document.querySelectorAll ? document.querySelectorAll('#pad button') : []) {
@@ -3208,7 +3493,7 @@ document.addEventListener('touchcancel', () => { gHoldStop(); g = null; });
 
 // ---- ジョイパッド(標準の配置): 十字キー・スティック=移動 / 下=1マス下げる / 上・RT=ハードドロップ /
 // A=右回転 / B・X=左回転 / LT=NEXT と入れかえ / Y・LB=ポーション / RB=月光波 / START=メニュー / SELECT(BACK)=BGM。タイトル画面はどのボタンでも始まる
-const PAD_MAP = { 6: 'swap', 14: 'left', 15: 'right', 13: 'soft', 12: 'hard', 7: 'hard', 0: 'rotR', 1: 'rotL', 2: 'rotL', 9: 'pause', 8: 'bgm', 3: 'potion', 4: 'potion', 5: 'moon' };
+// ボタンの割り当て(padMap)は、「キー・コントローラー設定」で変えられる。メニューの中の操作は、割り当てに関係なくいつも同じ
 const padPrev = {}, padNext = {};
 function pollPad(t) {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -3217,8 +3502,21 @@ function pollPad(t) {
   if (!p) return;
   const B = i => !!(p.buttons[i] && p.buttons[i].pressed);
   const ax = p.axes[0] || 0, ay = p.axes[1] || 0;
-  const st = { swap: false, left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false, potion: false, moon: false };
-  for (const i in PAD_MAP) if (B(+i)) st[PAD_MAP[i]] = true;
+  const anyDown = p.buttons.some(b => b && b.pressed);
+  if (padLock) { if (!anyDown) { padLock = false; for (const k in padPrev) padPrev[k] = false; } return; }   // 設定で決めた直後は、全部離すまで待つ
+  if (cfgCap && cfgCap.type === 'pad') {   // 設定: 押されたボタンを割り当てる(8秒で取りやめ)
+    const i = p.buttons.findIndex(b => b && b.pressed);
+    if (i >= 0) { setPad(cfgCap.a, cfgCap.i, i); padLock = true; }
+    else if (t - cfgCap.t0 > 8000) { cfgCap = null; renderMenu(); }
+    return;
+  }
+  let st;
+  if (appsOpen || menuOpen || titleScreen) {   // メニューの中: 十字キー・スティックで選ぶ / A で決定 / B・START で戻る / BACK で BGM
+    st = { hard: B(12) || ay < -0.6, soft: B(13) || ay > 0.6, left: B(14) || ax < -0.5, right: B(15) || ax > 0.5, rotR: B(0), rotL: B(1), pause: B(9), bgm: B(8) };
+  } else {
+    st = { swap: false, left: ax < -0.5, right: ax > 0.5, soft: ay > 0.6, rotL: false, rotR: false, hard: false, pause: false, bgm: false, potion: false, moon: false };
+    for (const i in padMap) if (B(+i)) st[padMap[i]] = true;
+  }
   const any = p.buttons.some(b => b && b.pressed);
   for (const k in st) {
     const was = padPrev[k];
@@ -3229,6 +3527,20 @@ function pollPad(t) {
     else if (REPEAT[k] && t >= padNext[k]) { fire = true; padNext[k] = t + REPEAT[k]; }
     if (!fire) continue;
     startBgm();
+    if (appsOpen) {   // アプリ一覧のダイアログ: 十字キーで選ぶ / A で決定 / B・START で閉じる
+      if (was) continue;
+      if (k === 'left' || k === 'right' || k === 'hard' || k === 'soft') { appsSel = 1 - appsSel; appsRender(); }
+      else if (k === 'rotR') appsChoose();
+      else if (k === 'rotL' || k === 'pause') closeApps();
+      continue;
+    }
+    if (menuOpen && menuMode === 'config') {   // キー・コントローラー設定: 十字キーで選ぶ / A で決定 / B・START で戻る
+      if (was) continue;
+      if (k === 'hard' || k === 'soft' || k === 'left' || k === 'right') cfgMove(k === 'left' ? -1 : k === 'right' ? 1 : 0, k === 'hard' ? -1 : k === 'soft' ? 1 : 0);
+      else if (k === 'rotR') cfgActivate();
+      else if (k === 'rotL' || k === 'pause') menuBack();
+      continue;
+    }
     if (menuOpen || titleScreen) {   // メニュー・タイトルの中: 上下で選ぶ / A で決定 / B・START でメニューを閉じる(タイトルでは START で始まる)
       if (was) continue;
       if (!menuOpen && (k === 'hard' || k === 'soft' || k === 'left' || k === 'right')) titleMove(k === 'left' ? -1 : k === 'right' ? 1 : 0, k === 'hard' ? -1 : k === 'soft' ? 1 : 0);
