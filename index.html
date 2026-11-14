@@ -93,10 +93,6 @@
   #menu .help:empty { display:none; }
   /* ずかん */
   #menu .zk-cards { display:flex; gap:8px; }
-  #menu .zk-card { flex:1; aspect-ratio:533 / 800; border:2px solid #ffe27a; border-radius:8px; overflow:hidden; background:#fdf2ee; cursor:pointer; }
-  #menu .zk-card img { width:100%; height:100%; object-fit:cover; display:block; }
-  #menu .zk-card.locked { border-color:#3a4052; background:#232633; color:#6a7288; display:flex; align-items:center; justify-content:center;
-                          text-align:center; font-size:12px; line-height:1.4; padding:6px; box-sizing:border-box; cursor:default; }
   #menu .zk-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(84px, 1fr)); gap:6px; }
   #menu .zk-cell { background:#232633; border:1px solid #3a4052; border-radius:8px; padding:6px 4px 4px; text-align:center; }
   #menu .zk-cell img { width:60px; height:60px; object-fit:contain; image-rendering:pixelated; display:block; margin:0 auto 3px; }
@@ -110,7 +106,65 @@
   /* カードを大きく見る(タップで閉じる) */
   #cardView { display:none; position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.88); align-items:center; justify-content:center; cursor:pointer; }
   #cardView.open { display:flex; }
-  #cardView img { max-width:94vw; max-height:94vh; border-radius:12px; box-shadow:0 0 24px rgba(255,226,122,.5); }
+  #cardView { flex-direction:column; gap:10px; }
+  #cardView .cv-hint { color:#8a93a8; font-size:12px; }
+  /* ルネリアのカード: 金の縁、名前の帯、光の筋 */
+  .lcard { position:relative; flex:1; min-width:0; aspect-ratio:533 / 860; padding:5px; display:flex; flex-direction:column; gap:4px; box-sizing:border-box; border-radius:10px; cursor:pointer;
+           background:linear-gradient(135deg, #fff6c8 0%, #d9a830 22%, #fff0a0 45%, #b8841a 68%, #ffe58a 100%);
+           box-shadow:0 2px 8px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.5); }
+  .lcard .lc-in { position:relative; flex:1; min-height:0; border-radius:6px; overflow:hidden; background:#fdf2ee; box-shadow:inset 0 0 0 1px rgba(90,60,0,.6); }
+  .lcard .lc-in img { width:100%; height:100%; object-fit:contain; display:block; }
+  .lcard .lc-shine { position:absolute; inset:0; pointer-events:none;
+           background:linear-gradient(115deg, transparent 35%, rgba(255,255,255,.55) 48%, rgba(255,240,200,.25) 52%, transparent 62%);
+           background-size:250% 100%; animation:lcShine 4s ease-in-out infinite; mix-blend-mode:screen; }
+  .lcard.c2 .lc-shine { animation-delay:-1.3s; } .lcard.c3 .lc-shine { animation-delay:-2.6s; }
+  @keyframes lcShine { 0% { background-position:150% 0; } 60%, 100% { background-position:-60% 0; } }
+  .lcard .lc-no { position:absolute; top:9px; left:9px; padding:1px 6px; border-radius:9px; font-size:10px; font-weight:bold; color:#5a3a00;
+           background:linear-gradient(#fff3b0, #e0b040); box-shadow:0 1px 2px rgba(0,0,0,.4); }
+  .lcard .lc-plate { padding:3px 4px; border-radius:5px; text-align:center; line-height:1.2;
+           background:rgba(40,24,60,.8); border:1px solid #e8c25a; color:#fff; }
+  .lcard .lc-plate b { display:block; font-size:12px; color:#ffe27a; letter-spacing:1px; }
+  .lcard .lc-plate span { display:block; font-size:10px; color:#f0d8ff; }
+  .lcard.c1 .lc-plate { background:rgba(30,40,90,.8); } .lcard.c2 .lc-plate { background:rgba(90,25,30,.8); } .lcard.c3 .lc-plate { background:rgba(95,30,75,.8); }
+  .lcard.locked { background:#232633; box-shadow:none; border:1px dashed #4a5268; color:#6a7288; display:flex; align-items:center; justify-content:center;
+           text-align:center; font-size:12px; line-height:1.4; padding:6px; cursor:default; }
+  .lcard.big { flex:none; height:min(84vh, calc(92vw * 860 / 533)); gap:8px; padding:10px; border-radius:18px; animation:lcIn .45s ease-out;
+           box-shadow:0 0 36px rgba(255,226,122,.55), inset 0 0 0 1px rgba(255,255,255,.6); }
+  .lcard.big .lc-in { border-radius:10px; }
+  .lcard.big .lc-no { top:18px; left:18px; font-size:14px; padding:2px 10px; border-radius:12px; }
+  .lcard.big .lc-plate { padding:6px; border-radius:8px; border-width:2px; }
+  .lcard.big .lc-plate b { font-size:22px; letter-spacing:3px; }
+  .lcard.big .lc-plate span { font-size:14px; }
+  @keyframes lcIn { from { transform:perspective(800px) rotateY(90deg) scale(.8); opacity:0; } to { transform:none; opacity:1; } }
+  /* モンスターを大きく見る */
+  .mcard { width:min(340px, 90vw); max-height:84vh; overflow:auto; box-sizing:border-box; padding:10px 12px 12px; border-radius:14px; border:3px solid transparent;
+           background:linear-gradient(#1b1e2a, #1b1e2a) padding-box, linear-gradient(135deg, var(--c1), var(--c2)) border-box;
+           box-shadow:0 0 28px rgba(0,0,0,.6); color:#dde; animation:mcIn .25s ease-out; cursor:pointer; }
+  .mcard.boss { background:linear-gradient(#1f1d24, #1f1d24) padding-box, linear-gradient(135deg, #fff1a8, #c8901c, #fff1a8) border-box;
+           box-shadow:0 0 30px rgba(255,226,122,.45); }
+  @keyframes mcIn { from { transform:scale(.85); opacity:0; } to { transform:none; opacity:1; } }
+  .mcard .mc-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
+  .mcard .mc-name { font-size:18px; font-weight:bold; color:#fff; }
+  .mcard.boss .mc-name { color:#ffe27a; }
+  .mcard .mc-tag { font-size:11px; padding:1px 7px; border-radius:9px; background:#2c3142; color:#aeb8d0; white-space:nowrap; }
+  .mcard .mc-pic { position:relative; height:160px; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center;
+           background:#0e1018; }
+  .mcard .mc-pic::before { content:''; position:absolute; inset:0; opacity:.45;
+           background:radial-gradient(circle at 50% 70%, var(--c1), transparent 70%); }
+  .mcard .mc-pic img { position:relative; max-width:88%; max-height:140px; width:auto; height:140px; object-fit:contain; image-rendering:pixelated; }
+  .mcard .mc-attr { margin:8px 0 6px; font-size:12px; line-height:1.8; color:#9fb0cc; }
+  .mcard .attr { display:inline-block; padding:0 4px; color:#111; border-radius:3px; }
+  .mcard .mc-wl { margin-left:6px; }
+  .mcard .mc-style { margin-left:6px; white-space:nowrap; }
+  .mcard .mc-stats { display:grid; gap:4px; }
+  .mcard .mc-row { display:grid; grid-template-columns:6.5em 1fr 4.2em; align-items:center; gap:6px; font-size:12px; }
+  .mcard .mc-l { color:#aeb8d0; }
+  .mcard .mc-bar { height:8px; border-radius:4px; background:#2a2e3d; overflow:hidden; }
+  .mcard .mc-bar i { display:block; height:100%; border-radius:4px; background:linear-gradient(90deg, var(--c1), var(--c2)); }
+  .mcard.boss .mc-bar i { background:linear-gradient(90deg, #c8901c, #ffe27a); }
+  .mcard .mc-v { text-align:right; color:#fff; font-variant-numeric:tabular-nums; }
+  .mcard .mc-note { margin-top:8px; font-size:10px; color:#7a8399; line-height:1.4; }
+  #menu .zk-cell { cursor:pointer; }
   /* 確認のメッセージ(読みやすい普通の書体で) */
   #menu .help .confirm { font-family:system-ui, -apple-system, 'Hiragino Sans', 'Yu Gothic UI', Meiryo, sans-serif; font-size:16px; line-height:1.6; color:#fff; max-width:22em; }
   /* あそびかた: 普通の書体で読みやすく(ドット文字にしない) */
@@ -255,7 +309,7 @@
 <!-- 設定メニュー(上のダンジョンをタップ / Esc / パッドの START で開く) -->
 <div id="menu"><div class="panel"><div class="title" data-i18n="menu">メニュー</div><div class="help"></div><div class="list"></div></div></div>
 <div id="appsDlg" role="dialog" aria-modal="true"><div class="panel"><div class="msg"></div><div class="btns"><button type="button">Yes</button><button type="button">No</button></div></div></div>
-<div id="cardView"><img alt=""></div>
+<div id="cardView"></div>
 <!-- タイトル画面(ゲームの画面とは別) -->
 <div id="title"><canvas id="titleBg"></canvas><button id="appsBtn" type="button" aria-label="App list"><canvas width="16" height="16"></canvas></button><button id="copyBtn" type="button">© 2026 daisuqe. All rights reserved.</button><canvas id="titleCv" width="480" height="450"></canvas><div class="list"></div><div class="hint" data-i18n="titleHint">↑↓←→で えらんで ＥＮＴＥＲ</div></div>
 <div id="rotate" data-i18n-html="rotateMsg">スマホを縦にしてください<br>(縦画面専用です)</div>

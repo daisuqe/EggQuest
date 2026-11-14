@@ -1072,6 +1072,18 @@ function coloredMask(img, color) {
 // ---- モンスター: 水玉卵(2色の組み合わせ)ごとに、画面下を左から右へ ----
 // 拡大率(scale)と浮遊の高さ(float, px)。画像は image/<キー>.png (右向き)
 const MONSTERS = {"ZZ":{"scale":1.3,"float":45,"hp":160,"atk":28,"def":5,"spd":24,"itv":1.0,"rng":30,"eva":5,"tackle":22,"style":"magic"},"ZJ":{"scale":1.02,"float":0,"hp":90,"atk":12,"def":8,"spd":22,"itv":1.1,"rng":30,"eva":5,"tackle":9,"style":"magic"},"ZS":{"scale":1.02,"float":0,"hp":95,"atk":12,"def":10,"spd":21,"itv":1.1,"rng":30,"eva":2,"tackle":14,"style":"magic"},"ZO":{"scale":0.72,"float":40,"hp":80,"atk":13,"def":5,"spd":29,"itv":0.9,"rng":30,"eva":8,"tackle":14,"style":"magic"},"ZI":{"scale":1.1,"float":55,"hp":75,"atk":12,"def":5,"spd":26,"itv":1.0,"rng":55,"eva":15,"tackle":8,"style":"magic"},"ZL":{"scale":1.0,"float":0,"hp":115,"atk":14,"def":15,"spd":19,"itv":1.2,"rng":25,"eva":2,"tackle":18,"style":"tackle"},"ZT":{"scale":0.95,"float":0,"hp":85,"atk":12,"def":8,"spd":23,"itv":1.1,"rng":50,"eva":10,"tackle":8,"style":"magic"},"JJ":{"scale":1.3,"float":0,"hp":200,"atk":20,"def":10,"spd":20,"itv":1.1,"rng":25,"eva":5,"tackle":14,"style":"magic"},"JS":{"scale":1.0,"float":0,"hp":105,"atk":10,"def":12,"spd":19,"itv":1.1,"rng":25,"eva":2,"tackle":12,"style":"magic"},"JO":{"scale":0.76,"float":0,"hp":90,"atk":11,"def":8,"spd":27,"itv":1.0,"rng":30,"eva":8,"tackle":12,"style":"magic"},"JI":{"scale":1.2,"float":30,"hp":85,"atk":10,"def":8,"spd":24,"itv":1.1,"rng":50,"eva":15,"tackle":6,"style":"magic"},"JL":{"scale":1.1,"float":0,"hp":125,"atk":12,"def":18,"spd":17,"itv":1.2,"rng":20,"eva":2,"tackle":16,"style":"tackle"},"JT":{"scale":1.105,"float":0,"hp":95,"atk":10,"def":10,"spd":21,"itv":1.1,"rng":50,"eva":10,"tackle":6,"style":"magic"},"SS":{"scale":1.248,"float":0,"hp":220,"atk":20,"def":15,"spd":18,"itv":1.2,"rng":25,"eva":0,"tackle":32,"style":"tackle"},"SO":{"scale":1.1,"float":0,"hp":95,"atk":11,"def":10,"spd":26,"itv":1.0,"rng":30,"eva":5,"tackle":17,"style":"tackle"},"SI":{"scale":0.88,"float":28,"hp":90,"atk":10,"def":10,"spd":23,"itv":1.1,"rng":50,"eva":12,"tackle":10,"style":"magic"},"SL":{"scale":1.21,"float":0,"hp":130,"atk":12,"def":20,"spd":16,"itv":1.3,"rng":20,"eva":0,"tackle":20,"style":"tackle"},"ST":{"scale":1.1,"float":0,"hp":100,"atk":10,"def":12,"spd":20,"itv":1.1,"rng":50,"eva":8,"tackle":11,"style":"magic"},"OO":{"scale":1.3585,"float":0,"hp":160,"atk":24,"def":5,"spd":34,"itv":0.8,"rng":30,"eva":10,"tackle":36,"style":"tackle"},"OI":{"scale":1.089,"float":35,"hp":75,"atk":10,"def":5,"spd":31,"itv":0.9,"rng":55,"eva":18,"tackle":12,"style":"magic"},"OL":{"scale":1.089,"float":0,"hp":115,"atk":12,"def":15,"spd":24,"itv":1.1,"rng":25,"eva":5,"tackle":21,"style":"tackle"},"OT":{"scale":0.9,"float":0,"hp":85,"atk":12,"def":8,"spd":28,"itv":1.0,"rng":50,"eva":12,"tackle":12,"style":"magic"},"II":{"scale":0.858,"float":37,"hp":140,"atk":18,"def":5,"spd":28,"itv":1.0,"rng":80,"eva":25,"tackle":10,"style":"magic"},"IL":{"scale":1.265,"float":0,"hp":110,"atk":11,"def":15,"spd":21,"itv":1.2,"rng":50,"eva":12,"tackle":14,"style":"tackle"},"IT":{"scale":0.9,"float":50,"hp":80,"atk":10,"def":8,"spd":25,"itv":1.1,"rng":75,"eva":20,"tackle":6,"style":"magic"},"LL":{"scale":1.17,"float":0,"hp":300,"atk":26,"def":25,"spd":14,"itv":1.4,"rng":20,"eva":0,"tackle":48,"style":"tackle"},"LT":{"scale":1.089,"float":0,"hp":120,"atk":12,"def":18,"spd":18,"itv":1.2,"rng":45,"eva":8,"tackle":15,"style":"tackle"},"TT":{"scale":0.7092,"float":35,"hp":180,"atk":22,"def":10,"spd":22,"itv":1.1,"rng":70,"eva":15,"tackle":12,"style":"magic"}};
+// 召喚獣の名前 [英語, 日本語] (_work/monster_names.csv)
+const MON_NAME = {
+  ZZ: ['Burning Wyvern', 'バーニングワイバーン'], ZJ: ['Steam Slime', 'スチームスライム'], ZS: ['Salamander', 'サラマンダー'],
+  ZO: ['Hornbeak', 'ホーンビーク'], ZI: ['Phoenix', 'フェニックス'], ZL: ['Dragonewt', 'ドラゴニュート'], ZT: ['Hellbeak', 'ヘルビーク'],
+  JJ: ['King Slime', 'キングスライム'], JS: ['Moss Jelly', 'モスジェリー'], JO: ['Horn Slime', 'ホーンスライム'],
+  JI: ['Wing Slime', 'ウィングスライム'], JL: ['Mud Slime', 'マッドスライム'], JT: ['Deep Eye', 'ディープアイ'],
+  SS: ['Megatail', 'メガテイル'], SO: ['Lightning Goat', 'ライトニングゴート'], SI: ['Snow Cat', 'スノーキャット'],
+  SL: ['Moss Bison', 'モスバイソン'], ST: ['Vine Gazer', 'ヴァインゲイザー'],
+  OO: ['Twin Horn', 'ツインホーン'], OI: ['Storm Unicorn', 'ストームユニコーン'], OL: ['Gold Horn', 'ゴールドホーン'], OT: ['Void Horn', 'ヴォイドホーン'],
+  II: ['Frost Wing', 'フロストウィング'], IL: ['Chimera', 'キメラ'], IT: ['Wing Eye', 'ウィングアイ'],
+  LL: ['Rock Brute', 'ロックブルート'], LT: ['Deep Titan', 'ディープタイタン'], TT: ['Big Eye', 'ビッグアイ'],
+};
 const MON_ORDER = 'ZJSOILT'; // キー(ミノ2文字)の並び順。Z=火 J=水 S=草 O=雷 I=氷 L=地 T=闇
 const MON_SPEED = 70 * 0.3; // 以前の3割
 const MON_MOVE_RATE = 0.5;  // 全個体の移動速度を半分にする
@@ -2980,6 +2992,7 @@ function askConfirm(msg, yesLabel, yes, back) {
 }
 // 「もどる」(Esc・パッドの B・枠の外をタップ): 確認のときは、やめたときと同じ
 function menuBack() {
+  if (viewerOpen()) { closeCard(); return; }
   if (menuMode === 'confirm' && confirmState && confirmState.back) confirmState.back();
   else if (menuMode === 'config') cfgBack();   // キー・コントローラー設定: 開く前のメニューにもどる
   else if (menuMode === 'help' && helpFromGame !== null) helpBack();   // ゲーム中のメニューから開いたあそびかたは、メニューにもどる
@@ -3055,11 +3068,102 @@ async function cardUrl(i) {
   return (cardUrls[i] = URL.createObjectURL(new Blob([b], { type: 'image/png' })));
 }
 const cardViewEl = document.getElementById('cardView');
-function openCard(i) {
-  if (!cardViewEl) return;
-  cardUrl(i).then(u => { cardViewEl.querySelector('img').src = u; cardViewEl.classList.add('open'); }).catch(() => {});
+// ルネリアのカードの見た目(金の縁・名前の帯・光の筋)。ずかんの一覧と、大きく見るときで同じ
+function lunaCard(i, big) {
+  const c = document.createElement('div');
+  c.className = 'lcard c' + (i + 1) + (big ? ' big' : '');
+  c.innerHTML = '<div class="lc-in"><img alt=""><div class="lc-shine"></div></div>' +
+    '<div class="lc-no">No.' + (i + 1) + '</div><div class="lc-plate"><b></b><span></span></div>';
+  c.querySelector('b').textContent = LI() === 0 ? 'ルネリア' : 'Luneria';
+  c.querySelector('.lc-plate span').textContent = T('cardName' + (i + 1));
+  const img = c.querySelector('img');
+  cardUrl(i).then(u => { img.src = u; }).catch(() => {});
+  return c;
 }
+function showViewer(node) {
+  if (!cardViewEl) return;
+  cardViewEl.innerHTML = '';
+  cardViewEl.appendChild(node);
+  const hint = document.createElement('div'); hint.className = 'cv-hint'; hint.textContent = T('zClose');
+  cardViewEl.appendChild(hint);
+  cardViewEl.classList.add('open');
+}
+function openCard(i) { showViewer(lunaCard(i, true)); }
+function viewerOpen() { return !!(cardViewEl && cardViewEl.classList && cardViewEl.classList.contains('open')); }
 function closeCard() { if (cardViewEl && cardViewEl.classList) cardViewEl.classList.remove('open'); }
+// ずかんのモンスターの、戦いでの強さ(「ふつう」で、ステージによる強化はなし)
+function zkStats(kind, k) {
+  const p = stats(k), boss = kind === 'e' && !ZAKO[k], zako = kind === 'e' && !boss;
+  const adj = (boss && BOSS_ADJ[k]) || { hp: 1, atk: 1 };
+  const am = kind === 'm' ? ALLY_ATK_MUL : boss ? ENEMY_ATK_MUL * BOSS_MOVE / bossMove(k) * adj.atk : 1;
+  const magic = p.style === 'magic';
+  return {
+    hp: Math.round(p.hp * (boss ? ENEMY_HP_MUL * adj.hp : zako ? ZAKO_HP_MUL : 1)),
+    atk: magic ? Math.round(p.atk * am) : null,
+    tackle: Math.round((p.tackle || p.atk) * am),
+    def: p.def || 0,
+    spd: +(kind === 'm' ? p.spd * MON_MOVE_RATE : boss ? BOSS_SPEED[k] : p.spd * ZAKO_SPEED_MUL).toFixed(1),
+    itv: +(p.itv * (boss ? ENEMY_ITV_MUL : 1)).toFixed(2),
+    rng: magic ? Math.round((p.rng || 0) * (boss ? ENEMY_RANGE_MUL : 1)) : null,
+    eva: p.eva || 0,
+    magic,
+  };
+}
+const ZK_ROWS = [['hp', 'sHp', ''], ['atk', 'sAtk', ''], ['tackle', 'sTackle', ''], ['def', 'sDef', '%'], ['spd', 'sSpd', ''],
+                 ['itv', 'sItv', 's', true], ['rng', 'sRng', ''], ['eva', 'sEva', '%']];
+const zkMax = {};   // グラフの長さの基準(召喚獣どうし・敵どうしでいちばん大きい値)
+function zkMaxOf(kind) {
+  if (zkMax[kind]) return zkMax[kind];
+  const keys = kind === 'm' ? Object.keys(MONSTERS) : Object.keys(ZAKO).concat(ENEMY_KEYS), mx = {};
+  for (const k of keys) { const s = zkStats(kind, k); for (const [f, , , inv] of ZK_ROWS) if (s[f] != null) mx[f] = inv ? Math.min(mx[f] || 99, s[f]) : Math.max(mx[f] || 0, s[f]); }
+  return (zkMax[kind] = mx);
+}
+function zkName(kind, k) {
+  if (kind === 'm') { const n = MON_NAME[k] || [k]; return LI() === 0 && n[1] ? n[1] : n[0]; }
+  if (!ZAKO[k]) { const n = BOSS_NAME[k] || [k]; return LI() === 0 && n[1] ? n[1] : n[0]; }
+  return LI() === 0 ? ZAKO[k].ja : ZAKO[k].en;
+}
+function zkAttrs(kind, k) {   // 属性(召喚獣は2つ、ボスは1つ、ザコはなし)
+  if (kind === 'm') return k[0] === k[1] ? [ATTR[k[0]]] : [ATTR[k[0]], ATTR[k[1]]];
+  return ZAKO[k] ? [] : [ATTR[k[0]]];
+}
+// モンスターを大きく見る(絵・名前・属性・弱点・パラメータ)
+function openMonster(kind, k) {
+  const boss = kind === 'e' && !ZAKO[k], attrs = zkAttrs(kind, k), s = zkStats(kind, k), mx = zkMaxOf(kind);
+  const c = document.createElement('div');
+  c.className = 'mcard' + (boss ? ' boss' : '');
+  const col = attrs.length ? ATTR_COLOR[attrs[0]] : '#8a90a0', col2 = attrs.length > 1 ? ATTR_COLOR[attrs[1]] : col;
+  c.style.setProperty('--c1', col); c.style.setProperty('--c2', col2);
+  const head = document.createElement('div'); head.className = 'mc-head';
+  const nm = document.createElement('div'); nm.className = 'mc-name'; nm.textContent = zkName(kind, k);
+  const tag = document.createElement('div'); tag.className = 'mc-tag'; tag.textContent = kind === 'm' ? T('zAllies') : T(boss ? 'zBoss' : 'zZako');
+  head.appendChild(nm); head.appendChild(tag); c.appendChild(head);
+  const pic = document.createElement('div'); pic.className = 'mc-pic';
+  const img = document.createElement('img'); img.alt = ''; img.src = (kind === 'm' ? monsterImgs[k] : enemyImgs[k]).src;
+  pic.appendChild(img); c.appendChild(pic);
+  const at = document.createElement('div'); at.className = 'mc-attr';
+  let h = attrs.map(attrChip).join(' ');
+  if (boss) {
+    const weak = Object.keys(TYPE_CHART).filter(x => TYPE_CHART[x][attrs[0]] === 2);
+    h += ' <span class="mc-wl">' + escHtml(T('cWeak')) + '</span>' + (weak.length ? weak.map(attrChip).join(' ') : escHtml(T('none')));
+  }
+  h += ' <span class="mc-style">' + escHtml(T('sStyle')) + ': ' + escHtml(T(s.magic ? 'styleMagic' : 'styleTackle')) + '</span>';
+  at.innerHTML = h; c.appendChild(at);
+  const tb = document.createElement('div'); tb.className = 'mc-stats';
+  for (const [f, lab, unit, inv] of ZK_ROWS) {
+    if (s[f] == null) continue;
+    const row = document.createElement('div'); row.className = 'mc-row';
+    // 攻撃の間隔は短いほど強いので、バーは逆向き(いちばん短いものを長く)
+    const r = mx[f] ? (inv ? mx[f] / s[f] : s[f] / mx[f]) : 0;
+    row.innerHTML = '<span class="mc-l"></span><span class="mc-bar"><i style="width:' + Math.max(3, Math.round(r * 100)) + '%"></i></span><span class="mc-v"></span>';
+    row.querySelector('.mc-l').textContent = T(lab);
+    row.querySelector('.mc-v').textContent = s[f] + unit;
+    tb.appendChild(row);
+  }
+  c.appendChild(tb);
+  if (kind === 'e') { const n = document.createElement('div'); n.className = 'mc-note'; n.textContent = T('zNote'); c.appendChild(n); }
+  showViewer(c);
+}
 if (cardViewEl && cardViewEl.addEventListener) cardViewEl.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); closeCard(); });
 function renderZukan(box) {
   const add = (tag, cls, text, parent = box) => { const d = document.createElement(tag); if (cls) d.className = cls; if (text != null) d.textContent = text; parent.appendChild(d); return d; };
@@ -3069,10 +3173,9 @@ function renderZukan(box) {
   const cards = add('div', 'zk-cards');
   for (let i = 0; i < CARD_N; i++) {
     if (i < open) {
-      const c = add('div', 'zk-card', null, cards), img = add('img', '', null, c);
-      img.alt = ''; cardUrl(i).then(u => { img.src = u; }).catch(() => {});
+      const c = lunaCard(i, false); cards.appendChild(c);
       c.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); openCard(i); });
-    } else add('div', 'zk-card locked', T('zLocked').replace('{n}', i + 1), cards);
+    } else add('div', 'lcard locked', T('zLocked').replace('{n}', i + 1), cards);
   }
   }
   // 出会ったモンスターだけ並べる(まだ出てきていないものは出さない)
@@ -3082,9 +3185,12 @@ function renderZukan(box) {
     const g = add('div', 'zk-grid');
     for (const k of keys) {
       const cell = add('div', 'zk-cell', null, g), img = add('img', '', null, cell);
+      cell.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); openMonster(kind, k); });
       img.alt = ''; img.src = (kind === 'm' ? monsterImgs[k] : enemyImgs[k]).src;
-      if (kind === 'm') {   // 味方: 2つの属性(同じ属性2つは1つだけ)
-        const at = add('div', 'zk-name', null, cell);
+      if (kind === 'm') {   // 召喚獣: 名前と2つの属性(同じ属性2つは1つだけ)
+        const nm = MON_NAME[k] || [k];
+        add('div', 'zk-name', lang === 'ja' && nm[1] ? nm[1] : nm[0], cell);
+        const at = add('div', 'zk-attr', null, cell);
         at.innerHTML = (k[0] === k[1] ? [k[0]] : [k[0], k[1]]).map(c => attrChip(ATTR[c])).join(' ');
       } else {
         const boss = !ZAKO[k], p = stats(k);
@@ -3146,6 +3252,7 @@ function closeMenu() {
 }
 // いま操作しているボタンの列(メニュー → タイトル)。上下で選ぶ(dir = -1 / 1)、0 で決定
 function listKey(dir) {
+  if (viewerOpen()) { closeCard(); return; }   // 大きく見ている絵は、どのキーでもとじる
   if (menuOpen) {
     const list = menuItems();
     if (dir) { menuSel = (menuSel + dir + list.length) % list.length; renderMenu(); } else list[menuSel][1]();
