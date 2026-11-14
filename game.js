@@ -717,7 +717,10 @@ function hardDrop() {
   updateHud();
 }
 
-function gravityInterval() { return Math.max(70, 800 - (level - 1) * 70) / 0.3; }
+// 1マス落ちる時間(ミリ秒): レベル1は 2.67秒。レベルが1上がるごとに 12% ずつ短くなり、いちばん速くても 0.35秒
+// (前は直線で縮めていたので、レベル10〜12(火のステージのあたり)で急に最速 0.23秒になっていた)
+const GRAV_START = 2667, GRAV_RATE = 0.88, GRAV_MIN = 350;
+function gravityInterval() { return Math.max(GRAV_MIN, GRAV_START * Math.pow(GRAV_RATE, level - 1)); }
 
 function update(dt) {
   if (over || paused || stageClear) return;
@@ -1209,7 +1212,7 @@ const BOSS_ENTER_SHOW = 0.3;      // ボスは、体のこの割合が開いた�
 const BOSS_ENTER_SPEED = 3;       // この倍の速さで出てくる(止まらず、こちらのモンスターを押しのける)
 const DOOR_FRONT_L = 123 * 200 / 695;   // 開いた扉の手前の扉板の左端(絵の中の横の位置。元の大きな絵での位置 123 を、いまの絵の大きさに直したもの)
 const ZAKO_PER_STAGE = 5;         // 1ステージのザコの数(2種類が交互に出る)
-const ZAKO_TIERS = [[1, 1], [1, 2], [1, 2], [2, 3], [2, 3], [3, 3], [3, 3]];   // ステージごとの、2種類のザコの強さの段階(ステージ3は難しすぎたので、2と同じに)
+const ZAKO_TIERS = [[1, 1], [1, 2], [1, 2], [2, 2], [2, 3], [2, 3], [3, 3]];   // ステージごとの、2種類のザコの強さの段階(ステージ3は難しすぎたので2と同じに。4は 2・2、6は 2・3 にして、急に強くならないように)
 const ZAKO_MIX = [0, 0, 1, 0, 1];                    // 出てくる順(0 = 1種類目、1 = 2種類目)
 const ZAKO_INTERVAL = 6000;       // ザコが次々に出てくる間隔(ミリ秒)
 const ZAKO_SCALE = 1.69 * UNIT_K;   // ザコの表示の大きさ(下の表の高さ h に対する倍率)
@@ -1287,12 +1290,16 @@ function bossEntering(e) {         // ボスが扉から出てくる途中(体�
 function spawnEnemy(key) {
   zukanSee('e', key);
   const boss = !ZAKO[key], p = stats(key), mul = stageMul();
-  const hp = Math.round(p.hp * (boss ? ENEMY_HP_MUL : ZAKO_HP_MUL) * mul);
+  const adj = (boss && BOSS_ADJ[key]) || { hp: 1, atk: 1 };
+  const hp = Math.round(p.hp * (boss ? ENEMY_HP_MUL : ZAKO_HP_MUL) * mul * adj.hp);
   // 出発位置: 開いた扉の手前の扉板から、ぎりぎり見えるところ(扉のない最終ステージは画面の右の外から)
   const x = door.none ? FIELD_W : doorEdgeX() - ENEMY_PEEK;
   enemies.push({ key, boss, x, t: 0, hp, maxHp: hp, cd: 1500, enemy: true,
-                 atkMul: (boss ? ENEMY_ATK_MUL * BOSS_MOVE / bossMove(key) : 1) * mul, itvMul: boss ? ENEMY_ITV_MUL : 1 });
+                 atkMul: (boss ? ENEMY_ATK_MUL * BOSS_MOVE / bossMove(key) * adj.atk : 1) * mul, itvMul: boss ? ENEMY_ITV_MUL : 1 });
 }
+// ボスごとの強さの調整(ボスのときだけ。味方のモンスターの強さは変えない)。
+// 地(LL)はもとの数字が高く、ステージ4で急に強くなっていたので、体力と攻撃を 0.6倍(火のボスの少し手前くらい)に
+const BOSS_ADJ = { LL: { hp: 0.6, atk: 0.6 } };
 function bossMove(key) { return BOSS_FAST[key] || BOSS_MOVE; }
 const ZAKO_SPEED_MUL = 0.9;        // ザコの移動の速さの倍率
 // ボスの移動の速さ(px/秒)。平均3、いちばん遅いのと速いのの差は1.8倍まで(足の速そうな雷・氷が速め、地が遅め)
@@ -2172,7 +2179,7 @@ function drawMoonInner(g, lit, line, S) {   // 瓶と同じ大きさ(32x32 の�
   g.drawImage(moonDim, x, y, w, h);
 }
 // 満タンのしるし: ボタンの中を、半透明の正方形8個がぐるぐる回る(公転だけで、正方形そのものは回らない)
-const ORBIT_N = 8, ORBIT_R = 0.456, ORBIT_SIZE = 37, ORBIT_MS = 2600;   // 数 / 回る円の半径(ボタンの幅に対する割合) / 正方形の大きさ(px) / 1周の時間(ミリ秒)
+const ORBIT_N = 8, ORBIT_R = 0.433, ORBIT_SIZE = 44, ORBIT_MS = 2600;   // 数 / 回る円の半径(ボタンの幅に対する割合) / 正方形の大きさ(px) / 1周の時間(ミリ秒)
 function drawOrbit(c, t, col) {
   const g = c.getContext('2d'), S = c.width, cx = S / 2, cy = S / 2, R = S * ORBIT_R, a0 = t / ORBIT_MS * Math.PI * 2;
   g.save();
