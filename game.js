@@ -466,6 +466,7 @@ function sfx(name, arg) {
 // 楽譜が読めないときは、MP3(BGM_MP3)をループで鳴らす
 const BGM_MP3 = 'music/Luneria-adventure-orchestra.mp3';
 const BGM_VOL = 0.45;             // BGM の音量
+const BGM_FADE_IN = 2;           // 曲が鳴りだすとき(はじめ・リスタート・曲の切りかえ・ポーズ明けなど)に、音を大きくしていく時間(秒)
 const BGM_FADE = 0.4;             // ポーズ・ゲームオーバーで音を小さくするときの速さ(秒)
 const BGM_AHEAD = 1.5;            // 何秒先までの音を予約しておくか(タブが裏にあっても途切れないように)
 // パートごとの音色: wave = 波形, gain = 音量, a/r = 立ち上がり/余韻(秒), sus = 持続の音量, lp = こもらせる周波数(Hz),
@@ -619,6 +620,7 @@ async function startBgm() {
 }
 function restartBgm() {           // リスタート: 曲の頭から(ステージの曲に切りかえる)
   if (!bgm || bgm.loading) return;
+  if (bgm.gain) { const t = actx.currentTime; bgm.gain.gain.cancelScheduledValues(t); bgm.gain.gain.setValueAtTime(0, t); }   // 頭から鳴らしなおすときは、無音からフェードイン
   if (bgm.synth) {
     const s = bgm.synth;
     for (const o of s.live) { try { o.stop(); } catch (e) {} }
@@ -629,6 +631,7 @@ function restartBgm() {           // リスタート: 曲の頭から(ステー�
     const src = actx.createBufferSource(); src.buffer = buf; src.loop = true; src.connect(bgm.gain); src.start();
     bgm.src = src;
   } else if (bgm.el) bgm.el.currentTime = 0;
+  updateBgm();
 }
 const BGM_SWITCH_FADE = 0.5;      // ステージで曲が変わるとき、前の曲を消す時間(秒)
 function switchBgm() {            // 次のステージの曲がちがえば、前の曲を少しで消して、新しい曲を頭から鳴らす
@@ -644,9 +647,12 @@ function updateBgm() {            // 鳴らす/小さくする(状態が変わ�
   if (!bgm || bgm.loading) return;
   const v = bgmWanted() ? BGM_VOL : 0;
   if (bgm.gain) {
-    const t = actx.currentTime;
-    bgm.gain.gain.cancelScheduledValues(t);
-    bgm.gain.gain.setTargetAtTime(v, t, BGM_FADE / 3);
+    const t = actx.currentTime, g = bgm.gain.gain, now = g.value;
+    g.cancelScheduledValues(t);
+    if (v > 0) {   // 鳴らす: いまの大きさから、BGM_FADE_IN 秒かけて少しずつ大きく(いきなり大きな音にしない)
+      g.setValueAtTime(now, t);
+      g.linearRampToValueAtTime(v, t + Math.max(0.05, BGM_FADE_IN * (1 - Math.min(1, now / v))));
+    } else g.setTargetAtTime(0, t, BGM_FADE / 3);
   } else if (bgm.el) {
     bgm.el.volume = v;
     if (v > 0 && bgm.el.paused) bgm.el.play().catch(() => {});
@@ -670,8 +676,9 @@ function playGameOver() {
   stopGameOver();
   const sc = window.GAME_OVER_SCORE, ctx = ensureCtx();
   if (!sc || !ctx || ctx.state !== 'running' || bgmMuted) return;
-  const gain = ctx.createGain(); gain.gain.value = BGM_VOL * GAME_OVER_VOL_K; gain.connect(ctx.destination);
+  const gain = ctx.createGain(); gain.connect(ctx.destination);
   const out = bgmMaster(ctx, gain), t0 = ctx.currentTime + GAME_OVER_DELAY, list = [];
+  gain.gain.setValueAtTime(0, t0); gain.gain.linearRampToValueAtTime(BGM_VOL * GAME_OVER_VOL_K, t0 + BGM_FADE_IN);   // これもフェードイン
   for (const n of bgmScoreNotes(sc)) bgmNote(ctx, out, n.name, t0 + n.t, n.d, n.n, n.v, list);
   jingle = { gain, list };
 }
