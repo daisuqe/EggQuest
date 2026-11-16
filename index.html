@@ -182,10 +182,11 @@
   #menu #rankName { width:100%; box-sizing:border-box; font-family:var(--font); font-size:16px; padding:10px 12px; color:#fff;
                     background:rgba(255,255,255,.08); border:2px solid #6b7894; border-radius:8px; outline:none; user-select:text; -webkit-user-select:text; }
   #menu .rmsg { margin:8px 0; color:#ffd479; min-height:1.4em; }
-  #menu .rlist { max-height:min(56vh, 420px); overflow:auto; touch-action:pan-y; }
+  #menu .rlist { width:min(470px, calc(100vw - 76px)); max-height:min(56vh, 420px); overflow:auto; touch-action:pan-x pan-y; }   /* PC では全部入る幅にする(入りきらない狭い画面だけ横にスクロール) */
   #menu .rlist table { width:100%; border-collapse:collapse; }
-  #menu .rlist th { color:#9aa3b8; font-weight:normal; text-align:left; padding:2px 6px; }
-  #menu .rlist td { padding:4px 6px; border-bottom:1px solid #2c3550; white-space:nowrap; }
+  #menu .rlist th { color:#9aa3b8; font-weight:normal; text-align:left; padding:2px 4px; font-size:12px; white-space:nowrap; }
+  #menu .rlist td { padding:4px 4px; border-bottom:1px solid #2c3550; white-space:nowrap; }
+  #menu .rlist td:nth-child(2) { width:100%; }   /* 名前の列が残りの幅を使う */
   #menu .rlist td:first-child { color:#9fb4e8; text-align:right; }
   #menu .rlist td:last-child, #menu .rlist th:last-child { text-align:right; color:#fff; }
   #menu .rlist tr.me td { background:rgba(70,130,255,.28); }
