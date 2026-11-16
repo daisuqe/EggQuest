@@ -388,9 +388,17 @@ function ensureCtx() {
     if (!AC) return null;
     actx = new AC();
   }
-  if (actx.state === 'suspended') actx.resume();
+  if (actx.state === 'suspended' && !pageHidden()) actx.resume();
   return actx;
 }
+// ページが見えなくなったら(ほかのアプリ・タブ・ページへ移ったら)音を止め、もどってきたら鳴らしなおす。
+// iPhone の Safari は、ほかのページへ移っても前のページを「戻る」用に止めたまま残すことがあり、
+// そのとき音だけ鳴りつづけて、ほかのゲームを開いてもこのゲームの BGM が流れっぱなしになっていた
+function pageHidden() { return typeof document !== 'undefined' && document.visibilityState === 'hidden'; }
+function audioSleep() { if (actx && actx.state === 'running') actx.suspend().catch(() => {}); }
+function audioWake() { if (actx && actx.state !== 'running' && !pageHidden()) actx.resume().catch(() => {}); }
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', () => { if (pageHidden()) audioSleep(); else audioWake(); });
+if (typeof addEventListener === 'function') { addEventListener('pagehide', audioSleep); addEventListener('pageshow', audioWake); }
 // iPhone(Safari)は、音を出せるようになるのが「指を離したとき(touchend)・クリック・キー」の操作の中だけ。
 // 画面にさわった瞬間(touchstart・pointerdown)に作った音の準備は止まったままになるので、指を離したときにもう一度動かす。
 // 古い iOS 向けに、無音を一瞬鳴らしておく。音が出せる状態になったら、もう何もしない
