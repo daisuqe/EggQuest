@@ -281,7 +281,7 @@ function finishClear() {
     }
   rows.slice().sort((a, b) => a - b).forEach(y => { board.splice(y, 1); board.unshift(Array(COLS).fill(null)); });
   lines += rows.length;
-  score += clearing.points;
+  addScore(clearing.points);
   level = Math.floor(lines / 10) + 1;
   clearing = null; parts = []; flash = [];
   cv.style.transform = '';
@@ -797,7 +797,10 @@ function softStep() {
   sfx('soft');
 }
 
-const SCORE_PX = [80, 64, 48, 32];   // スコアの文字の大きさ(大きい順に試す)
+// 点数の上限: 200兆点(卵をたくさん重ねて消すと、1回で兆をこえる点が出るため)
+const SCORE_MAX = 200e12;
+function addScore(n) { score = Math.min(SCORE_MAX, score + n); }
+const SCORE_PX = [80, 64, 48, 32, 24, 16];   // スコアの文字の大きさ(大きい順に試す)
 function updateHud() {
   const sc = document.getElementById('score');
   sc.textContent = score;
@@ -1559,7 +1562,7 @@ function hitUnit(t, power, mult) {
     if (t.enemy) {   // 敵を倒した。ボスなら、ルネリアの体力表示はいったん消す
       if (t.boss) { hero.shown = false; if (door.none) startEnding(); else openDoor(); }   // ボスを倒したらステージクリア(扉が開く。ラスボスならエンディング)
       const bonus = (t.boss ? ENEMY_BONUS : ZAKO_BONUS) * stage;
-      score += bonus; updateHud();
+      addScore(bonus); updateHud();
       popups.push({ x: px, y: Math.max(16, b.y + 14), text: '+' + bonus, color: '#ffe27a', t: 0, life: 1600, size: 14 });
       sfx('clear', t.boss ? 3 : 1);
     }
@@ -1667,7 +1670,7 @@ function startEnding() {          // ラスボスを倒した: 戦場を一掃�
   zukanClear();   // 全クリアした: ルネリアのカードが1枚開く
   store.set('eq_hard', '1');   // 全クリアした: 次から「むずかしい」を選べる
   const bonus = ENDING_BONUS;
-  score += bonus; updateHud();
+  addScore(bonus); updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: 4000, size: 16, still: true });
   for (const u of enemies) if (!u.dead) { u.dead = true; u.fade = 700; }
   sfx('clear', 4);
@@ -1718,7 +1721,7 @@ function openDoor() {               // 扉が開いた: ステージクリア。
   door.open = true; door.openT = 0;
   stageClear = true; stageClearT = DOOR_OPEN_MS + CLEAR_SHOW_MS;
   const bonus = STAGE_BONUS * stage;
-  score += bonus; updateHud();
+  addScore(bonus); updateHud();
   popups.push({ x: FIELD_W / 2, y: FIELD_H / 2 + 34, text: 'BONUS +' + bonus, color: '#ffe27a', t: 0, life: stageClearT, size: 16, still: true });
   for (const u of enemies) if (!u.dead) { u.dead = true; u.fade = 700; }
   monsters = monsters.filter(m => m.started && !m.dead);   // 味方はみんなで扉を通って右へはける(まだ出発していないものは消す)
@@ -1803,7 +1806,7 @@ function renderRankArea(box) {
     h += '<div class="rlist"><table><tr><th>#</th><th>NAME</th><th>STAGE</th><th>SCORE</th></tr>';
     rank.scores.forEach((r, i) => {
       const me = rank.myName && r.name.toLowerCase() === rank.myName.toLowerCase() ? ' class="me"' : '';
-      h += `<tr${me}><td>${i + 1}</td><td>${escHtml(r.name)}</td><td>${r.stage}${r.cleared ? ' ★' : ''}</td><td>${r.score}</td></tr>`;
+      h += `<tr${me}><td>${i + 1}</td><td>${escHtml(r.name)}</td><td>${r.stage}${r.cleared ? ' ★' : ''}</td><td class="rs">${r.score}</td></tr>`;
     });
     h += '</table></div>';
   }
